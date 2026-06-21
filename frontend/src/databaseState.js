@@ -12,6 +12,10 @@ export const initialDatabaseState = {
     { user_id: 9, username: 'sweet_sarah', email: 'sarah@dessert.com' },
     { user_id: 10, username: 'quick_cook', email: 'quick@meals.com' }
   ],
+  users_audit_log: [
+    { audit_id: 1, user_id: 11, username: 'temp_chef', email: 'temp@kitchen.com', action_type: 'INSERT', logged_at: '2025-05-20 10:00:00' },
+    { audit_id: 2, user_id: 11, username: 'temp_chef', email: 'temp@kitchen.com', action_type: 'DELETE', logged_at: '2025-05-20 10:05:00' }
+  ],
   ingredients: [
     { ingredient_id: 1, name: 'Chicken Breast' },
     { ingredient_id: 2, name: 'Olive Oil' },
@@ -61,16 +65,16 @@ export const initialDatabaseState = {
     { category_id: 10, name: 'Low-Carb' }
   ],
   recipes: [
-    { recipe_id: 1, user_id: 1, title: 'Classic Roasted Chicken', prep_time: 15, cook_time: 60, difficulty: 'Medium', created_at: '2025-05-10 10:00:00' },
-    { recipe_id: 2, user_id: 2, title: 'Simple Butter Cookies', prep_time: 20, cook_time: 12, difficulty: 'Easy', created_at: '2025-05-11 11:30:00' },
-    { recipe_id: 3, user_id: 3, title: 'Spicy Tomato Pasta', prep_time: 10, cook_time: 15, difficulty: 'Easy', created_at: '2025-05-12 12:45:00' },
-    { recipe_id: 4, user_id: 4, title: 'Garlic Steamed Veggies', prep_time: 10, cook_time: 10, difficulty: 'Easy', created_at: '2025-05-13 13:15:00' },
-    { recipe_id: 5, user_id: 5, title: 'Keto Grilled Steak', prep_time: 5, cook_time: 12, difficulty: 'Medium', created_at: '2025-05-14 14:00:00' },
-    { recipe_id: 6, user_id: 6, title: 'Vegan Onion Soup', prep_time: 15, cook_time: 40, difficulty: 'Medium', created_at: '2025-05-15 15:20:00' },
-    { recipe_id: 7, user_id: 7, title: 'Homemade Pizza Dough', prep_time: 30, cook_time: 0, difficulty: 'Hard', created_at: '2025-05-16 16:10:00' },
-    { recipe_id: 8, user_id: 8, title: 'BBQ Chicken Wings', prep_time: 10, cook_time: 25, difficulty: 'Medium', created_at: '2025-05-17 17:05:00' },
-    { recipe_id: 9, user_id: 9, title: 'Creamy Garlic Sauce', prep_time: 5, cook_time: 5, difficulty: 'Easy', created_at: '2025-05-18 18:30:00' },
-    { recipe_id: 10, user_id: 10, title: 'Quick Morning Omelet', prep_time: 5, cook_time: 5, difficulty: 'Easy', created_at: '2025-05-19 08:00:00' }
+    { recipe_id: 1, user_id: 1, title: 'Classic Roasted Chicken', prep_time: 15, cook_time: 60, difficulty: 'Medium', created_at: '2025-05-10 10:00:00', total_time: 75 },
+    { recipe_id: 2, user_id: 2, title: 'Simple Butter Cookies', prep_time: 20, cook_time: 12, difficulty: 'Easy', created_at: '2025-05-11 11:30:00', total_time: 32 },
+    { recipe_id: 3, user_id: 3, title: 'Spicy Tomato Pasta', prep_time: 10, cook_time: 15, difficulty: 'Easy', created_at: '2025-05-12 12:45:00', total_time: 25 },
+    { recipe_id: 4, user_id: 4, title: 'Garlic Steamed Veggies', prep_time: 10, cook_time: 10, difficulty: 'Easy', created_at: '2025-05-13 13:15:00', total_time: 20 },
+    { recipe_id: 5, user_id: 5, title: 'Keto Grilled Steak', prep_time: 5, cook_time: 12, difficulty: 'Medium', created_at: '2025-05-14 14:00:00', total_time: 17 },
+    { recipe_id: 6, user_id: 6, title: 'Vegan Onion Soup', prep_time: 15, cook_time: 40, difficulty: 'Medium', created_at: '2025-05-15 15:20:00', total_time: 55 },
+    { recipe_id: 7, user_id: 7, title: 'Homemade Pizza Dough', prep_time: 30, cook_time: 0, difficulty: 'Hard', created_at: '2025-05-16 16:10:00', total_time: 30 },
+    { recipe_id: 8, user_id: 8, title: 'BBQ Chicken Wings', prep_time: 10, cook_time: 25, difficulty: 'Medium', created_at: '2025-05-17 17:05:00', total_time: 35 },
+    { recipe_id: 9, user_id: 9, title: 'Creamy Garlic Sauce', prep_time: 5, cook_time: 5, difficulty: 'Easy', created_at: '2025-05-18 18:30:00', total_time: 10 },
+    { recipe_id: 10, user_id: 10, title: 'Quick Morning Omelet', prep_time: 5, cook_time: 5, difficulty: 'Easy', created_at: '2025-05-19 08:00:00', total_time: 10 }
   ],
   recipe_ingredients: [
     { recipe_id: 1, ingredient_id: 1, unit_id: 8, quantity: 2.00 },
@@ -194,10 +198,24 @@ export const databaseSchema = [
       { name: 'title', type: 'VARCHAR(150)', key: 'UNIQUE' },
       { name: 'prep_time', type: 'SMALLINT', key: '' },
       { name: 'cook_time', type: 'SMALLINT', key: '' },
+      { name: 'total_time', type: 'SMALLINT', key: '' },
       { name: 'difficulty', type: 'CHAR(6)', key: 'CHECK' },
       { name: 'created_at', type: 'DATETIME', key: 'DEFAULT' }
     ],
     relations: [{ from: 'user_id', toTable: 'Users', toColumn: 'user_id' }]
+  },
+  {
+    name: 'Users_Audit_Log',
+    description: 'Audit log for user insertions and deletions',
+    columns: [
+      { name: 'audit_id', type: 'INT', key: 'PK' },
+      { name: 'user_id', type: 'INT', key: '' },
+      { name: 'username', type: 'VARCHAR(50)', key: '' },
+      { name: 'email', type: 'VARCHAR(100)', key: '' },
+      { name: 'action_type', type: 'VARCHAR(10)', key: '' },
+      { name: 'logged_at', type: 'DATETIME', key: '' }
+    ],
+    relations: []
   },
   {
     name: 'Recipe_Ingredients',

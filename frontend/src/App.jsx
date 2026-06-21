@@ -23,52 +23,26 @@ function executeLocalQuery(sql, state, setDemoState) {
       const paramVal = procMatch[2] || procMatch[3];
       
       switch (procName) {
-        case 'GetRecipeDetails':
-          return { success: true, data: state.recipes };
-        case 'CountRecipesCategory': {
+        case 'GetIngredientDetails':
+          return { success: true, data: state.ingredients };
+        case 'CountRecipesByDifficulty': {
           const counts = {};
-          state.recipe_categories.forEach(rc => {
-            const cat = state.categories.find(c => c.category_id === rc.category_id);
-            if (cat) counts[cat.name] = (counts[cat.name] || 0) + 1;
+          state.recipes.forEach(r => {
+            counts[r.difficulty] = (counts[r.difficulty] || 0) + 1;
           });
-          return { success: true, data: Object.keys(counts).map(cat => ({ category_name: cat, recipe_count: counts[cat] })) };
+          return { success: true, data: Object.keys(counts).map(diff => ({ difficulty: diff, recipe_count: counts[diff] })).sort((a, b) => b.recipe_count - a.recipe_count) };
         }
         case 'GetRecipesByCategory':
-          if (!paramVal) throw new Error("GetRecipesByCategory expects @category parameter");
+          if (!paramVal) throw new Error("GetRecipesByCategory expects @CategoryName parameter");
           const cat = state.categories.find(c => c.name === paramVal);
           if (!cat) return { success: true, data: [] };
           const recIds = state.recipe_categories.filter(rc => rc.category_id === cat.category_id).map(rc => rc.recipe_id);
-          return { success: true, data: state.recipes.filter(r => recIds.includes(r.recipe_id)) };
-        case 'GetIngredientCountCategory': {
-          if (!paramVal) throw new Error("GetIngredientCountCategory expects @recipe_id parameter");
-          const cnt = state.recipe_ingredients.filter(ri => String(ri.recipe_id) === String(paramVal)).length;
-          return { success: true, data: [{ recipe_id: paramVal, ingredient_count: cnt }] };
-        }
-        case 'GetUserFavorites': {
-          const list = state.favorites.map(f => {
-            const user = state.users.find(u => u.user_id === f.user_id);
-            const recipe = state.recipes.find(r => r.recipe_id === f.recipe_id);
-            return {
-              user_id: f.user_id,
-              username: user ? user.username : 'Unknown',
-              recipe_id: f.recipe_id,
-              recipe_title: recipe ? recipe.title : 'Unknown'
-            };
-          });
-          return { success: true, data: list };
-        }
-        case 'GetRecipeRatings': {
-          const resultList = state.recipes.map(r => {
-            const count = state.ratings.filter(rt => rt.recipe_id === r.recipe_id).length;
-            const avg = count > 0 ? state.ratings.filter(rt => rt.recipe_id === r.recipe_id).reduce((a, b) => a + b.rating_score, 0) / count : 0;
-            return {
-              recipe_id: r.recipe_id,
-              title: r.title,
-              rating_count: count,
-              average_score: avg.toFixed(1)
-            };
-          }).sort((a,b) => b.average_score - a.average_score);
-          return { success: true, data: resultList };
+          return { success: true, data: state.recipes.filter(r => recIds.includes(r.recipe_id)).map(r => ({ recipe_id: r.recipe_id, title: r.title, difficulty: r.difficulty })) };
+        case 'GetRecipeFavoriteCount': {
+          // For demo purposes, calculate favorite count for a recipe
+          const recipeId = parseInt(paramVal);
+          const favCount = state.favorites.filter(f => f.recipe_id === recipeId).length;
+          return { success: true, data: [{ total_favorites: favCount }] };
         }
         default:
           throw new Error(`Procedure "${procName}" execution is simulated.`);
@@ -85,32 +59,42 @@ function executeLocalQuery(sql, state, setDemoState) {
       const setVal = setValRaw !== undefined ? setValRaw : (isNaN(Number(setValNum)) ? setValNum : Number(setValNum));
       const whereVal = whereValRaw !== undefined ? whereValRaw : whereValNum;
 
-      if (!state[tName]) {
+      // Handle plural table names
+      let stateTableKey = tName;
+      if (state[tName + 's']) stateTableKey = tName + 's';
+      if (state[tName.replace(/y$/, 'ies')]) stateTableKey = tName.replace(/y$/, 'ies');
+      
+      if (!state[stateTableKey]) {
         throw new Error(`Table "${tableName}" not found.`);
       }
 
-      // Check trigger conditions
-      if (tName === 'recipes' && setCol.toLowerCase() === 'cook_time') {
-        if (Number(setVal) < 0) {
-          throw new Error(`TRIGGER ROLLBACK EXCEPTION: cook_time cannot be negative.`);
+      // Check trigger conditions for Recipes
+      if (stateTableKey === 'recipes') {
+        // Trigger check_recipe_cook_time_limit for INSERT/UPDATE
+        if (setCol.toLowerCase() === 'cook_time' && Number(setVal) > 480) {
+          throw new Error(`TRIGGER ROLLBACK EXCEPTION: Recipe cooking duration cannot exceed 8 hours (480 minutes).`);
         }
       }
 
       let updatedRows = 0;
       setDemoState(prev => {
-        const updatedTable = prev[tName].map(row => {
+        const updatedTable = prev[stateTableKey].map(row => {
           if (String(row[whereCol]) === String(whereVal)) {
             updatedRows++;
-            const newRow = { ...row, [setCol]: setVal };
-            // Auto update difficulty trigger
-            if (tName === 'recipes' && setCol.toLowerCase() === 'cook_time' && Number(setVal) > 120) {
-              newRow.difficulty = 'Hard';
+            let newRow = { ...row, [setCol]: setVal };
+            
+            // Trigger trg_update_total_time: auto-calculate total_time = prep_time + cook_time
+            if (stateTableKey === 'recipes') {
+              const newPrepTime = setCol.toLowerCase() === 'prep_time' ? Number(setVal) : (row.prep_time || 0);
+              const newCookTime = setCol.toLowerCase() === 'cook_time' ? Number(setVal) : (row.cook_time || 0);
+              newRow.total_time = newPrepTime + newCookTime;
             }
+            
             return newRow;
           }
           return row;
         });
-        return { ...prev, [tName]: updatedTable };
+        return { ...prev, [stateTableKey]: updatedTable };
       });
 
       return {
@@ -129,7 +113,12 @@ function executeLocalQuery(sql, state, setDemoState) {
       const cols = colsStr.split(',').map(c => c.trim());
       const vals = valsStr.split(',').map(v => v.trim().replace(/^'|'$/g, ''));
 
-      if (!state[tName]) {
+      // Handle plural table names
+      let stateTableKey = tName;
+      if (state[tName + 's']) stateTableKey = tName + 's';
+      if (state[tName.replace(/y$/, 'ies')]) stateTableKey = tName.replace(/y$/, 'ies');
+      
+      if (!state[stateTableKey]) {
         throw new Error(`Table "${tableName}" not found.`);
       }
 
@@ -139,28 +128,49 @@ function executeLocalQuery(sql, state, setDemoState) {
         newRow[col] = isNaN(Number(val)) ? val : Number(val);
       });
 
-      // INSTEAD OF trigger for Ratings
-      if (tName === 'ratings' && (Number(newRow.rating_score) < 1 || Number(newRow.rating_score) > 5)) {
-        throw new Error(`TRIGGER ROLLBACK EXCEPTION [RAISERROR Level 16]: Rating score must be between 1 and 5. Score attempted: ${newRow.rating_score}.`);
+      // INSTEAD OF trigger check_recipe_cook_time_limit
+      if (stateTableKey === 'recipes' && (Number(newRow.cook_time) > 480)) {
+        throw new Error(`TRIGGER ROLLBACK EXCEPTION: Recipe cooking duration cannot exceed 8 hours (480 minutes).`);
+      }
+
+      // CHECK constraint for Ratings
+      if (stateTableKey === 'ratings' && (Number(newRow.rating_score) < 1 || Number(newRow.rating_score) > 5)) {
+        throw new Error(`CHECK constraint violation: Rating score must be between 1 and 5. Score attempted: ${newRow.rating_score}.`);
       }
 
       setDemoState(prev => {
-        let updatedLogs = prev.recipe_audit_log || [];
-        if (tName === 'recipes') {
-          const newLog = {
-            log_id: updatedLogs.length + 1,
-            action: 'insert',
-            recipe_id: newRow.recipe_id || Math.floor(Math.random() * 1000) + 100,
-            title: newRow.title,
-            timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19)
-          };
-          updatedLogs = [newLog, ...updatedLogs];
+        let updatedState = { ...prev };
+        
+        // Auto-calculate total_time for Recipes (trg_update_total_time)
+        if (stateTableKey === 'recipes') {
+          const prepTime = newRow.prep_time || 0;
+          const cookTime = newRow.cook_time || 0;
+          newRow.total_time = prepTime + cookTime;
+          // Also add created_at if not provided
+          if (!newRow.created_at) {
+            newRow.created_at = new Date().toISOString().replace('T', ' ').substring(0, 19);
+          }
         }
-        return {
-          ...prev,
-          [tName]: [...prev[tName], newRow],
-          recipe_audit_log: updatedLogs
-        };
+        
+        // Handle Users audit logging
+        if (stateTableKey === 'users') {
+          // Auto-log insert to Users_Audit_Log
+          let auditLog = prev.users_audit_log || [];
+          const newAuditLog = {
+            audit_id: auditLog.length + 1,
+            user_id: newRow.user_id || Math.floor(Math.random() * 1000) + 10,
+            username: newRow.username,
+            email: newRow.email,
+            action_type: 'INSERT',
+            logged_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
+          };
+          auditLog = [newAuditLog, ...auditLog];
+          updatedState.users_audit_log = auditLog;
+        }
+
+        updatedState[stateTableKey] = [...prev[stateTableKey], newRow];
+        
+        return updatedState;
       });
 
       return {
@@ -178,7 +188,12 @@ function executeLocalQuery(sql, state, setDemoState) {
       const tName = tableName.toLowerCase();
       const whereVal = whereValRaw !== undefined ? whereValRaw : whereValNum;
 
-      if (!state[tName]) {
+      // Handle plural table names
+      let stateTableKey = tName;
+      if (state[tName + 's']) stateTableKey = tName + 's';
+      if (state[tName.replace(/y$/, 'ies')]) stateTableKey = tName.replace(/y$/, 'ies');
+      
+      if (!state[stateTableKey]) {
         throw new Error(`Table "${tableName}" not found.`);
       }
 
@@ -186,30 +201,32 @@ function executeLocalQuery(sql, state, setDemoState) {
       let deletedRecord = null;
       
       setDemoState(prev => {
-        const target = prev[tName].find(row => String(row[whereCol]) === String(whereVal));
+        let updatedState = { ...prev };
+        const target = prev[stateTableKey].find(row => String(row[whereCol]) === String(whereVal));
         if (target) {
           deletedRecord = target;
           deletedRows = 1;
         }
-        const updatedTable = prev[tName].filter(row => String(row[whereCol]) !== String(whereVal));
+        const updatedTable = prev[stateTableKey].filter(row => String(row[whereCol]) !== String(whereVal));
         
-        let updatedLogs = prev.recipe_audit_log || [];
-        if (tName === 'recipes' && deletedRecord) {
-          const newLog = {
-            log_id: updatedLogs.length + 1,
-            action: 'delete',
-            recipe_id: deletedRecord.recipe_id,
-            title: deletedRecord.title,
-            timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19)
+        // Handle Users audit logging
+        if (stateTableKey === 'users' && deletedRecord) {
+          let auditLog = prev.users_audit_log || [];
+          const newAuditLog = {
+            audit_id: auditLog.length + 1,
+            user_id: deletedRecord.user_id,
+            username: deletedRecord.username,
+            email: deletedRecord.email,
+            action_type: 'DELETE',
+            logged_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
           };
-          updatedLogs = [newLog, ...updatedLogs];
+          auditLog = [newAuditLog, ...auditLog];
+          updatedState.users_audit_log = auditLog;
         }
 
-        return {
-          ...prev,
-          [tName]: updatedTable,
-          recipe_audit_log: updatedLogs
-        };
+        updatedState[stateTableKey] = updatedTable;
+        
+        return updatedState;
       });
 
       return {
@@ -235,7 +252,14 @@ function executeLocalQuery(sql, state, setDemoState) {
   }
   
   const [_, columnsStr, tableName, whereStr, orderStr] = selectMatch;
-  const table = state[tableName.toLowerCase()];
+  const tName = tableName.toLowerCase();
+  
+  // Handle plural table names
+  let stateTableKey = tName;
+  if (state[tName + 's']) stateTableKey = tName + 's';
+  if (state[tName.replace(/y$/, 'ies')]) stateTableKey = tName.replace(/y$/, 'ies');
+  
+  const table = state[stateTableKey];
   if (!table) {
     throw new Error(`Table "${tableName}" not found in local database schema.`);
   }
@@ -378,29 +402,28 @@ function App() {
   const [selectedTable, setSelectedTable] = useState(databaseSchema[0]);
 
   // Stored Procedures State
-  const [selectedProcedure, setSelectedProcedure] = useState('GetRecipesByCategory');
+  const [selectedProcedure, setSelectedProcedure] = useState('GetIngredientDetails');
   const [spParams, setSpParams] = useState({
-    category: 'Dinner',
-    ingredient_id: '11',
-    ingredient_name: 'Basil',
+    category_name: 'Dinner',
     recipe_id: '1',
     user_id: '1',
-    cook_time_add: '10',
-    rating_score: '5',
-    new_recipe_title: 'Spaghetti Bolognese',
-    new_recipe_prep: '20',
-    new_recipe_cook: '40'
+    time_value: '20',
+    scale_factor: '1.5',
+    user_handle: 'new_chef',
+    user_email: 'new_chef@example.com',
+    new_time: '30',
+    rating_score: '5'
   });
   const [spConsole, setSpConsole] = useState({ type: 'info', text: 'Select a procedure and input parameters to execute.' });
   const [spResults, setSpResults] = useState(null);
   const [spLoading, setSpLoading] = useState(false);
 
   // Triggers Playground State
-  const [activeTriggerTab, setActiveTriggerTab] = useState('age');
-  const [triggerAgeForm, setTriggerAgeForm] = useState({ user_id: '00128', dob: '1998-05-15' });
-  const [triggerCapForm, setTriggerCapForm] = useState({ type: 'Watson', sub_type: '122', capacity: '250' });
-  const [triggerDeptForm, setTriggerDeptForm] = useState({ action: 'insert', category_name: 'New AI1', type: 'Taylor', budget: '210000' });
-  const [triggerSalForm, setTriggerSalForm] = useState({ ingredient_id: '12121', current_rating: 90000, new_rating: '85000' });
+  const [activeTriggerTab, setActiveTriggerTab] = useState('total_time');
+  const [triggerAgeForm, setTriggerAgeForm] = useState({ recipe_id: '1', prep_time: '20', cook_time: '60' });
+  const [triggerCapForm, setTriggerCapForm] = useState({ title: 'Super Long Cook Recipe', user_id: '1', prep_time: '30', cook_time: '500', difficulty: 'Hard' });
+  const [triggerDeptForm, setTriggerDeptForm] = useState({ action: 'insert', username: 'new_chef', email: 'new_chef@example.com' });
+  const [triggerSalForm, setTriggerSalForm] = useState({ rating_id: '1', current_rating: 5, new_rating: '2' });
   const [triggerConsole, setTriggerConsole] = useState({ type: 'info', text: 'Output terminal. Trigger actions will show updates here.' });
   
   // Benchmark State
@@ -558,37 +581,31 @@ function App() {
 
     let query = '';
     
-    // Construct exact stored procedure query based on SSMS 22 syntax
+    // Construct exact stored procedure query based on query_2nd.sql schema
     switch (selectedProcedure) {
-      case 'GetRecipeDetails':
-        query = 'EXEC GetRecipeDetails;';
+      case 'GetIngredientDetails':
+        query = 'EXEC GetIngredientDetails;';
         break;
-      case 'CountRecipesCategory':
-        query = 'EXEC CountRecipesCategory;';
+      case 'CountRecipesByDifficulty':
+        query = 'EXEC CountRecipesByDifficulty;';
         break;
       case 'GetRecipesByCategory':
-        query = `EXEC GetRecipesByCategory @category = '${spParams.category}';`;
+        query = `EXEC GetRecipesByCategory @CategoryName = '${spParams.category_name}';`;
         break;
-      case 'GetIngredientCountCategory':
-        query = `DECLARE @count INT;\nEXEC GetIngredientCountCategory @category = '${spParams.category}', @inst_count = @count OUTPUT;\nSELECT @count AS ingredient_count;`;
+      case 'GetRecipeFavoriteCount':
+        query = `DECLARE @FavCount INT;\nEXEC GetRecipeFavoriteCount @RecipeId = ${spParams.recipe_id}, @FavCount = @FavCount OUTPUT;\nSELECT @FavCount AS total_favorites;`;
         break;
-      case 'AddNewRecipe':
-        query = `DECLARE @error_msg NVARCHAR(100);\nEXEC AddNewRecipe @category_name = '${spParams.new_category_name}', @type = '${spParams.new_category_type}', @budget = ${spParams.new_category_budget}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM category;`;
+      case 'ScalePrepTime':
+        query = `DECLARE @ScaledTime INT;\nEXEC ScalePrepTime @TimeValue = ${spParams.time_value}, @ScaleFactor = ${spParams.scale_factor}, @ScaledTime = @ScaledTime OUTPUT;\nSELECT @ScaledTime AS scaled_prep_time;`;
         break;
-      case 'AddIngredient':
-        query = `DECLARE @error_msg NVARCHAR(100);\nEXEC AddIngredient @ingredient_id = '${spParams.ingredient_id}', @ingredient_name = '${spParams.ingredient_name}', @category = '${spParams.category}', @inst_rating = ${spParams.inst_rating}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM ingredient;`;
+      case 'AddNewUser':
+        query = `DECLARE @StatusMsg NVARCHAR(100);\nEXEC AddNewUser @UserHandle = '${spParams.user_handle}', @UserEmail = '${spParams.user_email}', @StatusMsg = @StatusMsg OUTPUT;\nSELECT @StatusMsg AS status;\nSELECT * FROM Users;`;
         break;
       case 'UpdateRecipeCookTime':
-        query = `DECLARE @error_msg NVARCHAR(100);\nEXEC UpdateRecipeCookTime @user_id = '${spParams.user_id}', @additional_points = ${spParams.additional_points}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM user;`;
+        query = `DECLARE @ErrMsg NVARCHAR(100);\nEXEC UpdateRecipeCookTime @RID = ${spParams.recipe_id}, @NewTime = ${spParams.new_time}, @ErrMsg = @ErrMsg OUTPUT;\nSELECT @ErrMsg AS message;\nSELECT * FROM Recipes;`;
         break;
       case 'RateRecipe':
-        query = `DECLARE @error_msg NVARCHAR(100);\nEXEC RateRecipe @ingredient_id = '${spParams.ingredient_id}', @increase_amount = ${spParams.increase_amount}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM ingredient;`;
-        break;
-      case 'GetUserFavorites':
-        query = 'EXEC GetUserFavorites;';
-        break;
-      case 'GetRecipeRatings':
-        query = 'EXEC GetRecipeRatings;';
+        query = `DECLARE @Status NVARCHAR(100);\nEXEC RateRecipe @UID = ${spParams.user_id}, @RID = ${spParams.recipe_id}, @Score = ${spParams.rating_score}, @Status = @Status OUTPUT;\nSELECT @Status AS status;\nSELECT * FROM Ratings;`;
         break;
       default:
         query = '';
@@ -607,20 +624,17 @@ function App() {
           const duration = result.durationMs;
           
           // Custom parsing for output queries
-          if (selectedProcedure === 'GetIngredientCountCategory') {
-            const count = result.data[0]?.ingredient_count;
+          if (['GetRecipeFavoriteCount', 'ScalePrepTime'].includes(selectedProcedure)) {
+            const outputVal = result.data[0]?.total_favorites || result.data[0]?.scaled_prep_time;
             setSpConsole({
               type: 'success',
-              text: `Stored Procedure executed successfully in ${duration}ms.\nOutput Param @inst_count = ${count}\n\nT-SQL Code:\n${query}`
+              text: `Stored Procedure executed successfully in ${duration}ms.\nOutput Param value = ${outputVal}\n\nT-SQL Code:\n${query}`
             });
             setSpResults(result.data);
-          } else if (['AddIngredient', 'UpdateRecipeCookTime', 'RateRecipe', 'AddNewRecipe'].includes(selectedProcedure)) {
-            // These return multiple recordsets: result message and updated table
-            const msgResult = result.recordsets[0] ? result.recordsets[0][0]?.result : 'Executed';
-            const updatedTable = result.recordsets[1] || result.data || [];
-            
+          } else if (['AddNewUser', 'UpdateRecipeCookTime', 'RateRecipe'].includes(selectedProcedure)) {
+            const msgResult = result.recordsets?.[0]?.[0]?.status || result.recordsets?.[0]?.[0]?.message || 'Executed';
+            const updatedTable = result.recordsets?.[1] || result.data || [];
             const isError = msgResult.toLowerCase().includes('error');
-            
             setSpConsole({
               type: isError ? 'error' : 'success',
               text: `SP Result Message: "${msgResult}"\nExecuted in ${duration}ms.\n\nT-SQL Code:\n${query}`
@@ -651,138 +665,89 @@ function App() {
         const duration = Math.floor(Math.random() * 8) + 2;
         
         switch (selectedProcedure) {
-          case 'GetRecipeDetails':
-            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\n\nReturns category details list.` });
-            setSpResults(demoState.categories);
+          case 'GetIngredientDetails':
+            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\n\nReturns all ingredients.` });
+            setSpResults(demoState.ingredients);
             break;
             
-          case 'CountRecipesCategory':
-            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\n\nCounts recipes grouped by category.` });
-            const counts = {};
-            demoState.recipes.forEach(c => {
-              counts[c.category_name] = (counts[c.category_name] || 0) + 1;
+          case 'CountRecipesByDifficulty':
+            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\n\nCounts recipes grouped by difficulty.` });
+            const diffCounts = {};
+            demoState.recipes.forEach(r => {
+              diffCounts[r.difficulty] = (diffCounts[r.difficulty] || 0) + 1;
             });
-            setSpResults(Object.keys(counts).map(category => ({ category_name: category, recipe_count: counts[category] })));
+            setSpResults(Object.keys(diffCounts).map(diff => ({ difficulty: diff, recipe_count: diffCounts[diff] })));
             break;
             
           case 'GetRecipesByCategory':
-            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\nParams: @category = '${spParams.category}'` });
-            setSpResults(demoState.recipes.filter(c => c.category_name === spParams.category));
+            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\nParams: @CategoryName = '${spParams.category_name}'` });
+            const catId = demoState.categories.find(c => c.name === spParams.category_name)?.category_id;
+            const recipeIds = catId ? demoState.recipe_categories.filter(rc => rc.category_id === catId).map(rc => rc.recipe_id) : [];
+            setSpResults(demoState.recipes.filter(r => recipeIds.includes(r.recipe_id)).map(r => ({ recipe_id: r.recipe_id, title: r.title, difficulty: r.difficulty })));
             break;
             
-          case 'GetIngredientCountCategory':
-            const cnt = demoState.ingredients.filter(i => i.category_name === spParams.category).length;
-            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\nParams: @category = '${spParams.category}'\nOutput Param @inst_count = ${cnt}` });
-            setSpResults([{ category_name: spParams.category, ingredient_count: cnt }]);
+          case 'GetRecipeFavoriteCount':
+            const favCount = demoState.favorites.filter(f => f.recipe_id === parseInt(spParams.recipe_id)).length;
+            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\nParams: @RecipeId = ${spParams.recipe_id}\nOutput Param @FavCount = ${favCount}` });
+            setSpResults([{ total_favorites: favCount }]);
             break;
             
-          case 'AddNewRecipe':
-            if (demoState.category.some(d => d.category_name === spParams.new_category_name)) {
-              setSpConsole({ type: 'error', text: `Error: Category '${spParams.new_category_name}' already exists.\nTransaction rolled back.` });
-            } else if (parseFloat(spParams.new_category_budget) <= 0) {
-              setSpConsole({ type: 'error', text: 'Error: Budget must be greater than 0.' });
+          case 'ScalePrepTime':
+            const scaledVal = Math.round(parseInt(spParams.time_value) * parseFloat(spParams.scale_factor));
+            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\n@TimeValue = ${spParams.time_value}, @ScaleFactor = ${spParams.scale_factor}\nOutput Param @ScaledTime = ${scaledVal}` });
+            setSpResults([{ scaled_prep_time: scaledVal }]);
+            break;
+            
+          case 'AddNewUser':
+            if (demoState.users.some(u => u.username === spParams.user_handle || u.email === spParams.user_email)) {
+              setSpConsole({ type: 'error', text: `Error: Username or Email already exists.` });
             } else {
-              const newDept = {
-                category_name: spParams.new_category_name,
-                type: spParams.new_category_type,
-                budget: parseFloat(spParams.new_category_budget)
-              };
-              setDemoState(prev => ({
-                ...prev,
-                category: [...prev.category, newDept]
+              const newUserId = demoState.users.length + 1;
+              const newUser = { user_id: newUserId, username: spParams.user_handle, email: spParams.user_email, created_at: new Date().toISOString() };
+              setDemoState(prev => ({ 
+                ...prev, 
+                users: [...prev.users, newUser], 
+                users_audit_log: [...prev.users_audit_log, { audit_id: prev.users_audit_log.length + 1, user_id: newUserId, username: newUser.username, email: newUser.email, action_type: 'INSERT', logged_at: new Date().toISOString() }] 
               }));
-              setSpConsole({ type: 'success', text: `Category '${spParams.new_category_name}' added successfully to Demo state in ${duration}ms.` });
-              setSpResults([...demoState.category, newDept]);
-            }
-            break;
-            
-          case 'AddIngredient':
-            if (demoState.ingredients.some(i => i.ingredient_id === spParams.ingredient_id)) {
-              setSpConsole({ type: 'error', text: `Error: Ingredient ID '${spParams.ingredient_id}' already exists.\nFAILED insertion.` });
-            } else {
-              const newInst = {
-                ingredient_id: spParams.ingredient_id,
-                name: spParams.ingredient_name,
-                category_name: spParams.category,
-                rating: parseFloat(spParams.inst_rating)
-              };
-              setDemoState(prev => ({
-                ...prev,
-                ingredient: [...prev.ingredient, newInst]
-              }));
-              setSpConsole({ type: 'success', text: `Ingredient '${spParams.ingredient_name}' inserted successfully in Demo state.` });
-              setSpResults([...demoState.ingredients, newInst]);
+              setSpConsole({ type: 'success', text: `User '${spParams.user_handle}' added successfully!` });
+              setSpResults([...demoState.users, newUser]);
             }
             break;
             
           case 'UpdateRecipeCookTime':
-            if (parseInt(spParams.additional_points) < 0) {
-              setSpConsole({ type: 'error', text: 'Error: additional credits cannot be negative' });
-            } else if (!demoState.users.some(s => s.user_id === spParams.user_id)) {
-              setSpConsole({ type: 'error', text: `Error: user ID '${spParams.user_id}' does not exist.` });
+            const rid = parseInt(spParams.recipe_id);
+            const nt = parseInt(spParams.new_time);
+            if (!demoState.recipes.some(r => r.recipe_id === rid)) {
+              setSpConsole({ type: 'error', text: `Error: Recipe ID not found.` });
             } else {
-              const updatedUsers = demoState.users.map(s => {
-                if (s.user_id === spParams.user_id) {
-                  return { ...s, tot_cred: s.tot_cred + parseInt(spParams.additional_points) };
+              const updatedRecipes = demoState.recipes.map(r => {
+                if (r.recipe_id === rid) {
+                  return { ...r, cook_time: nt, total_time: r.prep_time + nt };
                 }
-                return s;
+                return r;
               });
-              setDemoState(prev => ({ ...prev, user: updatedUsers }));
-              setSpConsole({ type: 'success', text: `Demo State Updated! Added ${spParams.additional_points} credits to User ID ${spParams.user_id}` });
-              setSpResults(updatedUsers);
+              setDemoState(prev => ({ ...prev, recipes: updatedRecipes }));
+              setSpConsole({ type: 'success', text: `Recipe cook time updated to ${nt} minutes!` });
+              setSpResults(updatedRecipes);
             }
             break;
             
           case 'RateRecipe':
-            if (parseFloat(spParams.increase_amount) <= 0) {
-              setSpConsole({ type: 'error', text: 'Error: Increase amount must be greater than 0.' });
-            } else if (!demoState.ingredients.some(i => i.ingredient_id === spParams.ingredient_id)) {
-              setSpConsole({ type: 'error', text: `Error: Ingredient ID '${spParams.ingredient_id}' does not exist.` });
+            const uid = parseInt(spParams.user_id);
+            const rrid = parseInt(spParams.recipe_id);
+            const score = parseInt(spParams.rating_score);
+            if (!demoState.users.some(u => u.user_id === uid)) {
+              setSpConsole({ type: 'error', text: `User not found.` });
+            } else if (!demoState.recipes.some(r => r.recipe_id === rrid)) {
+              setSpConsole({ type: 'error', text: `Recipe not found.` });
+            } else if (score < 1 || score > 5) {
+              setSpConsole({ type: 'error', text: `Score must be between 1-5.` });
             } else {
-              const prevSal = demoState.ingredients.find(i => i.ingredient_id === spParams.ingredient_id).rating;
-              const updatedIngredients = demoState.ingredients.map(i => {
-                if (i.ingredient_id === spParams.ingredient_id) {
-                  return { ...i, rating: i.rating + parseFloat(spParams.increase_amount) };
-                }
-                return i;
-              });
-              setDemoState(prev => ({ ...prev, ingredient: updatedIngredients }));
-              setSpConsole({ 
-                type: 'success', 
-                text: `Ingredient rating updated successfully. Previous: ${prevSal} -> New: ${prevSal + parseFloat(spParams.increase_amount)}`
-              });
-              setSpResults(updatedIngredients);
+              const newRating = { rating_id: demoState.ratings.length + 1, user_id: uid, recipe_id: rrid, rating_score: score, rated_at: new Date().toISOString() };
+              setDemoState(prev => ({ ...prev, ratings: [...prev.ratings, newRating] }));
+              setSpConsole({ type: 'success', text: `Recipe rated successfully! Score: ${score}` });
+              setSpResults([...demoState.ratings, newRating]);
             }
-            break;
-            
-          case 'GetUserFavorites':
-            setSpConsole({ type: 'success', text: `Demo Stored Procedure executed in ${duration}ms.\nJoins user and favorite tables.` });
-            const list = demoState.users.map(s => {
-              const adv = demoState.favorite.find(a => a.user_id === s.user_id);
-              const inst = adv ? demoState.ingredients.find(i => i.ingredient_id === fav.ingredient_id) : null;
-              return {
-                user_id: s.user_id,
-                user_name: s.name,
-                user_category: s.category_name,
-                favorite_id: adv ? fav.ingredient_id : null,
-                favorite_name: inst ? inst.name : 'No Favorite'
-              };
-            });
-            setSpResults(list);
-            break;
-            
-          case 'GetRecipeRatings':
-            setSpConsole({ type: 'success', text: `Demo Stored Procedure executed in ${duration}ms.\nCounts user enrollments per recipe.` });
-            const resultList = demoState.recipes.map(c => {
-              const count = demoState.takes.filter(t => t.recipe_id === c.recipe_id).length;
-              return {
-                recipe_id: c.recipe_id,
-                recipe_title: c.title,
-                category_name: c.category_name,
-                user_count: count
-              };
-            }).sort((a,b) => b.user_count - a.user_count);
-            setSpResults(resultList);
             break;
             
           default:
@@ -798,12 +763,12 @@ function App() {
     setTriggerConsole({ type: 'info', text: 'Executing Trigger Action...' });
     const startTime = Date.now();
 
-    if (triggerType === 'age') {
-      const birthYear = new Date(triggerAgeForm.dob).getFullYear();
-      const currentYear = new Date().getFullYear();
-      const calculatedAge = currentYear - birthYear;
+    if (triggerType === 'total_time') {
+      const prepTime = parseInt(triggerAgeForm.prep_time);
+      const cookTime = parseInt(triggerAgeForm.cook_time);
+      const totalTime = prepTime + cookTime;
       
-      const sql = `UPDATE user SET DoB = '${triggerAgeForm.dob}' WHERE user_id = '${triggerAgeForm.user_id}';\nSELECT * FROM user;`;
+      const sql = `UPDATE Recipes SET prep_time = ${prepTime}, cook_time = ${cookTime} WHERE recipe_id = ${triggerAgeForm.recipe_id};\nSELECT * FROM Recipes WHERE recipe_id = ${triggerAgeForm.recipe_id};`;
       
       if (connectionMode === 'LIVE') {
         try {
@@ -814,12 +779,11 @@ function App() {
           });
           const result = await response.json();
           if (result.success) {
-            // Find updated user in returned dataset
             const updatedList = result.recordsets[1] || result.data || [];
-            const stud = updatedList.find(s => s.user_id === triggerAgeForm.user_id);
+            const recipe = updatedList.find(r => r.recipe_id === parseInt(triggerAgeForm.recipe_id));
             setTriggerConsole({
               type: 'success',
-              text: `SUCCESS: Trigger [trg_update_age] fired AFTER UPDATE!\nAutomatically calculated and updated user's age field.\n\nCalculated User Age: ${stud?.age || calculatedAge}\n\nT-SQL Statement:\n${sql}`
+              text: `SUCCESS: Trigger [trg_update_total_time] fired AFTER UPDATE!\nAutomatically calculated total_time = prep_time + cook_time.\n\nCalculated Total Time: ${recipe?.total_time || totalTime} mins\n\nT-SQL Statement:\n${sql}`
             });
             fetchStats();
           } else {
@@ -829,26 +793,25 @@ function App() {
           setTriggerConsole({ type: 'error', text: 'Failed to dispatch API request.' });
         }
       } else {
-        // Demo mode local update
         setTimeout(() => {
-          const updated = demoState.users.map(s => {
-            if (s.user_id === triggerAgeForm.user_id) {
-              return { ...s, DoB: triggerAgeForm.dob, age: calculatedAge };
+          const updatedRecipes = demoState.recipes.map(r => {
+            if (r.recipe_id === parseInt(triggerAgeForm.recipe_id)) {
+              return { ...r, prep_time: prepTime, cook_time: cookTime, total_time: totalTime };
             }
-            return s;
+            return r;
           });
-          setDemoState(prev => ({ ...prev, user: updated }));
+          setDemoState(prev => ({ ...prev, recipes: updatedRecipes }));
           setTriggerConsole({
             type: 'success',
-            text: `SUCCESS (Demo Playground Mode):\nTrigger [trg_update_age] successfully fired!\nUser ID ${triggerAgeForm.user_id} DOB updated to ${triggerAgeForm.dob}.\nAge calculated automatically in local state: ${calculatedAge} years old!`
+            text: `SUCCESS (Demo Playground Mode):\nTrigger [trg_update_total_time] successfully fired!\nRecipe ID ${triggerAgeForm.recipe_id} updated.\nTotal time automatically calculated: ${totalTime} minutes!`
           });
         }, 400);
       }
     }
 
-    if (triggerType === 'capacity') {
-      const capVal = parseInt(triggerCapForm.capacity);
-      const sql = `INSERT INTO category (type, sub_type, capacity)\nVALUES ('${triggerCapForm.type}', '${triggerCapForm.sub_type}', ${capVal});`;
+    if (triggerType === 'cook_limit') {
+      const cookTimeVal = parseInt(triggerCapForm.cook_time);
+      const sql = `INSERT INTO Recipes (user_id, title, prep_time, cook_time, difficulty)\nVALUES (${triggerCapForm.user_id}, '${triggerCapForm.title}', ${triggerCapForm.prep_time}, ${cookTimeVal}, '${triggerCapForm.difficulty}');`;
       
       if (connectionMode === 'LIVE') {
         try {
@@ -861,7 +824,7 @@ function App() {
           if (result.success) {
             setTriggerConsole({
               type: 'success',
-              text: `SUCCESS: Trigger [check_category_capacity] passed! INSTEAD OF INSERT completed successfully.\ncategory capacity ${capVal} <= 200 restriction satisfied.\n\nT-SQL Code Executed:\n${sql}`
+              text: `SUCCESS: Trigger [check_recipe_cook_time_limit] passed! INSTEAD OF INSERT completed successfully.\nCook time ${cookTimeVal} &lt;= 480 restriction satisfied.\n\nT-SQL Code Executed:\n${sql}`
             });
             fetchStats();
           } else {
@@ -874,34 +837,42 @@ function App() {
           setTriggerConsole({ type: 'error', text: 'Live Connection request error.' });
         }
       } else {
-        // Demo mode capacity check simulation
         setTimeout(() => {
-          if (capVal > 200) {
+          if (cookTimeVal > 480) {
             setTriggerConsole({
               type: 'error',
-              text: `TRIGGER ROLLBACK EXCEPTION [RAISERROR Level 16]:\ncategory capacity cannot be more than 200 (Capacity attempted: ${capVal}).\nTransaction explicitly rolled back by INSTEAD OF INSERT trigger check_category_capacity.`
+              text: `TRIGGER ROLLBACK EXCEPTION [RAISERROR Level 16]:\nRecipe cook time cannot exceed 480 minutes (8 hours).\nCook time attempted: ${cookTimeVal} minutes.\nTransaction explicitly rolled back by INSTEAD OF INSERT trigger.`
             });
           } else {
-            const newClass = { type: triggerCapForm.type, sub_type: triggerCapForm.sub_type, capacity: capVal };
+            const newRecipe = {
+              recipe_id: demoState.recipes.length + 1,
+              user_id: parseInt(triggerCapForm.user_id),
+              title: triggerCapForm.title,
+              prep_time: parseInt(triggerCapForm.prep_time),
+              cook_time: cookTimeVal,
+              total_time: parseInt(triggerCapForm.prep_time) + cookTimeVal,
+              difficulty: triggerCapForm.difficulty,
+              created_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
+            };
             setDemoState(prev => ({
               ...prev,
-              category: [...prev.category, newClass]
+              recipes: [...prev.recipes, newRecipe]
             }));
             setTriggerConsole({
               type: 'success',
-              text: `SUCCESS (Demo Playground Mode):\nTrigger [check_category_capacity] evaluated successfully!\nCapacity ${capVal} is within bounds (<= 200).\nCategory inserted into local table list.`
+              text: `SUCCESS (Demo Playground Mode):\nTrigger [check_recipe_cook_time_limit] evaluated successfully!\nCook time ${cookTimeVal} is within bounds (&lt;= 480).\nRecipe inserted into local table.`
             });
           }
         }, 400);
       }
     }
 
-    if (triggerType === 'audit') {
+    if (triggerType === 'user_audit') {
       let sql = '';
       if (triggerDeptForm.action === 'insert') {
-        sql = `INSERT INTO category (category_name, type, budget)\nVALUES ('${triggerDeptForm.category_name}', '${triggerDeptForm.type}', ${triggerDeptForm.budget});\nSELECT * FROM category_log ORDER BY log_id DESC;`;
+        sql = `INSERT INTO Users (username, email)\nVALUES ('${triggerDeptForm.username}', '${triggerDeptForm.email}');\nSELECT * FROM Users_Audit_Log ORDER BY audit_id DESC;`;
       } else {
-        sql = `DELETE FROM category WHERE category_name = '${triggerDeptForm.category_name}';\nSELECT * FROM category_log ORDER BY log_id DESC;`;
+        sql = `DELETE FROM Users WHERE username = '${triggerDeptForm.username}';\nSELECT * FROM Users_Audit_Log ORDER BY audit_id DESC;`;
       }
 
       if (connectionMode === 'LIVE') {
@@ -916,7 +887,7 @@ function App() {
             const logs = result.recordsets[1] || result.data || [];
             setTriggerConsole({
               type: 'success',
-              text: `SUCCESS: Trigger fired and successfully logged category activity!\nAction: '${triggerDeptForm.action.toUpperCase()}' on Category: '${triggerDeptForm.category_name}'\n\nLatest category_log entry: ${JSON.stringify(logs[0] || {}, null, 2)}\n\nT-SQL Code:\n${sql}`
+              text: `SUCCESS: Trigger fired and successfully logged user activity!\nAction: '${triggerDeptForm.action.toUpperCase()}' on User: '${triggerDeptForm.username}'\n\nLatest Users_Audit_Log entry: ${JSON.stringify(logs[0] || {}, null, 2)}\n\nT-SQL Code:\n${sql}`
             });
             fetchStats();
           } else {
@@ -926,44 +897,45 @@ function App() {
           setTriggerConsole({ type: 'error', text: 'Live Connection request error.' });
         }
       } else {
-        // Demo mode logging simulation
         setTimeout(() => {
+          let newLogId = (demoState.users_audit_log || []).length + 1;
           const newLog = {
-            log_id: demoState.category_log.length + 1,
-            category_name: triggerDeptForm.category_name,
-            budget: parseFloat(triggerDeptForm.budget),
-            action: triggerDeptForm.action,
-            log_time: new Date().toISOString().replace('T', ' ').substring(0, 19)
+            audit_id: newLogId,
+            user_id: triggerDeptForm.action === 'insert' ? (demoState.users.length + 1) : (demoState.users.find(u => u.username === triggerDeptForm.username)?.user_id || 0),
+            username: triggerDeptForm.username,
+            email: triggerDeptForm.email,
+            action_type: triggerDeptForm.action,
+            logged_at: new Date().toISOString().replace('T', ' ').substring(0, 19)
           };
           
-          let updatedDepts = [...demoState.category];
+          let updatedUsers = [...demoState.users];
           if (triggerDeptForm.action === 'insert') {
-            updatedDepts.push({
-              category_name: triggerDeptForm.category_name,
-              type: triggerDeptForm.type,
-              budget: parseFloat(triggerDeptForm.budget)
+            updatedUsers.push({
+              user_id: demoState.users.length + 1,
+              username: triggerDeptForm.username,
+              email: triggerDeptForm.email
             });
           } else {
-            updatedDepts = updatedDepts.filter(d => d.category_name !== triggerDeptForm.category_name);
+            updatedUsers = updatedUsers.filter(u => u.username !== triggerDeptForm.username);
           }
 
           setDemoState(prev => ({
             ...prev,
-            category: updatedDepts,
-            category_log: [newLog, ...prev.category_log]
+            users: updatedUsers,
+            users_audit_log: [newLog, ...(prev.users_audit_log || [])]
           }));
 
           setTriggerConsole({
             type: 'success',
-            text: `SUCCESS (Demo Mode):\nTrigger [log_category_${triggerDeptForm.action}] fired AFTER ${triggerDeptForm.action.toUpperCase()}!\nAudit log appended successfully.\n\nLatest category_log:\n${JSON.stringify(newLog, null, 2)}`
+            text: `SUCCESS (Demo Mode):\nTrigger fired AFTER ${triggerDeptForm.action.toUpperCase()}!\nAudit log appended successfully.\n\nLatest Users_Audit_Log:\n${JSON.stringify(newLog, null, 2)}`
           });
         }, 400);
       }
     }
 
-    if (triggerType === 'rating') {
-      const newVal = parseFloat(triggerSalForm.new_rating);
-      const sql = `UPDATE ingredient SET rating = ${newVal} WHERE ingredient_id = '${triggerSalForm.ingredient_id}';`;
+    if (triggerType === 'rating_protection') {
+      const newRating = parseInt(triggerSalForm.new_rating);
+      const sql = `UPDATE Ratings SET rating_score = ${newRating} WHERE rating_id = ${triggerSalForm.rating_id};`;
       
       if (connectionMode === 'LIVE') {
         try {
@@ -976,37 +948,36 @@ function App() {
           if (result.success) {
             setTriggerConsole({
               type: 'success',
-              text: `SUCCESS: Trigger [rating_nodecrease] evaluated! Rating increase to $${newVal} allowed.\n\nT-SQL Statement:\n${sql}`
+              text: `SUCCESS: Trigger [safety_rating_protection] evaluated! Rating change allowed.\n\nT-SQL Statement:\n${sql}`
             });
             fetchStats();
           } else {
             setTriggerConsole({
               type: 'error',
-              text: `TRIGGER ROLLBACK (Rating Decrease Violation Level 16):\n${result.error}\n\nT-SQL Statement Blocked:\n${sql}`
+              text: `TRIGGER ROLLBACK (Rating Protection Violation Level 16):\n${result.error}\n\nT-SQL Statement Blocked:\n${sql}`
             });
           }
         } catch (e) {
           setTriggerConsole({ type: 'error', text: 'Live Connection request error.' });
         }
       } else {
-        // Demo mode rating rollback simulation
         setTimeout(() => {
-          if (newVal < triggerSalForm.current_rating) {
+          if (newRating < triggerSalForm.current_rating - 2) {
             setTriggerConsole({
               type: 'error',
-              text: `TRIGGER ROLLBACK EXCEPTION [RAISERROR Level 16]:\nRating decrease not allowed for ingredients (Ingredient ID: ${triggerSalForm.ingredient_id}).\nAttempted to lower rating from $${triggerSalForm.current_rating} to $${newVal}.\nTransaction explicitly rolled back by AFTER UPDATE trigger [rating_nodecrease].`
+              text: `TRIGGER ROLLBACK EXCEPTION [RAISERROR Level 16]:\nRating drop of more than 2 points not allowed (Rating ID: ${triggerSalForm.rating_id}).\nAttempted to lower rating from ${triggerSalForm.current_rating} to ${newRating}.\nTransaction rolled back by AFTER UPDATE trigger.`
             });
           } else {
-            const updated = demoState.ingredients.map(i => {
-              if (i.ingredient_id === triggerSalForm.ingredient_id) {
-                return { ...i, rating: newVal };
+            const updatedRatings = demoState.ratings.map(r => {
+              if (r.rating_id === parseInt(triggerSalForm.rating_id)) {
+                return { ...r, rating_score: newRating };
               }
-              return i;
+              return r;
             });
-            setDemoState(prev => ({ ...prev, ingredient: updated }));
+            setDemoState(prev => ({ ...prev, ratings: updatedRatings }));
             setTriggerConsole({
               type: 'success',
-              text: `SUCCESS (Demo Mode):\nTrigger [rating_nodecrease] successfully evaluated!\nRating raise from $${triggerSalForm.current_rating} to $${newVal} approved and updated in local state.`
+              text: `SUCCESS (Demo Mode):\nTrigger [safety_rating_protection] successfully evaluated!\nRating change from ${triggerSalForm.current_rating} to ${newRating} approved!`
             });
           }
         }, 400);
@@ -1415,16 +1386,16 @@ function App() {
                 </div>
                 <div className="card-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   <p className="text-secondary">
-                    Your <code>query_2nd.sql</code> schema represents a classic recipe catalog database containing user enrollments, faculty profiles, favorite mappings, category logistics, and grading frameworks.
+                    Your <code>query_2nd.sql</code> schema represents a complete recipe catalog database containing user profiles, recipe collections, ingredient mappings, category organization, and favorite tracking systems.
                   </p>
 
                   <div style={{ border: '1px solid var(--panel-border)', borderRadius: '10px', padding: '16px', background: 'rgba(255, 255, 255, 0.01)' }}>
                     <h4 style={{ color: '#fff', marginBottom: '10px', fontSize: '0.9rem' }}>Project Features Showcased:</h4>
                     <ul style={{ paddingLeft: '20px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.88rem' }}>
-                      <li><strong>80+ structured queries</strong> (Joins, CTEs, Window functions)</li>
-                      <li><strong>10 stored procedures</strong> with input & output parameters</li>
+                      <li><strong>Structured queries</strong> (Joins, CTEs, Window functions)</li>
+                      <li><strong>8 stored procedures</strong> with input & output parameters</li>
                       <li><strong>4 active database triggers</strong> enforcing constraints & logs</li>
-                      <li><strong>Indexed performance tests</strong> comparison (50,000 users)</li>
+                      <li><strong>Indexed performance tests</strong> on large datasets</li>
                     </ul>
                   </div>
 
@@ -1744,16 +1715,14 @@ function App() {
               </div>
               <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {[
-                  { name: 'GetRecipeDetails', desc: 'Lists type, room, & capacity' },
-                  { name: 'CountRecipesCategory', desc: 'Counts recipes in each major' },
-                  { name: 'GetRecipesByCategory', desc: 'Fetch recipe by category param' },
-                  { name: 'GetIngredientCountCategory', desc: 'Count ingredients in category (Output Param)' },
-                  { name: 'AddNewRecipe', desc: 'Inserts new category securely' },
-                  { name: 'AddIngredient', desc: 'Inserts ingredient with exception catch' },
-                  { name: 'UpdateRecipeCookTime', desc: 'Updates user credit records' },
-                  { name: 'RateRecipe', desc: 'Updates rating with constraints check' },
-                  { name: 'GetUserFavorites', desc: 'Lists users and favorite name' },
-                  { name: 'GetRecipeRatings', desc: 'Aggregates user count for recipes' }
+                  { name: 'GetIngredientDetails', desc: 'Lists all ingredients' },
+                  { name: 'CountRecipesByDifficulty', desc: 'Counts recipes grouped by difficulty' },
+                  { name: 'GetRecipesByCategory', desc: 'Fetch recipes by category name' },
+                  { name: 'GetRecipeFavoriteCount', desc: 'Gets number of favorites for a recipe (OUTPUT param)' },
+                  { name: 'ScalePrepTime', desc: 'Scales prep time by a factor (OUTPUT param)' },
+                  { name: 'AddNewUser', desc: 'Inserts a new user with error handling' },
+                  { name: 'UpdateRecipeCookTime', desc: 'Updates recipe cook time with validation' },
+                  { name: 'RateRecipe', desc: 'Adds a new recipe rating with validation' }
                 ].map(proc => (
                   <button 
                     key={proc.name}
@@ -1788,89 +1757,88 @@ function App() {
                     <div className="param-title">Input Parameters:</div>
                     
                     {/* Render input params conditionally depending on selected SP */}
-                    {['GetRecipesByCategory', 'GetIngredientCountCategory', 'AddIngredient'].includes(selectedProcedure) && (
+                    {selectedProcedure === 'GetRecipesByCategory' && (
                       <div className="form-group">
-                        <label>@category (Category Major)</label>
+                        <label>@CategoryName</label>
                         <select 
                           className="form-select" 
-                          value={spParams.category} 
-                          onChange={e => setSpParams({ ...spParams, category: e.target.value })}
+                          value={spParams.category_name} 
+                          onChange={e => setSpParams({ ...spParams, category_name: e.target.value })}
                         >
-                          <option value="Comp. Sci.">Comp. Sci.</option>
-                          <option value="Biology">Biology</option>
-                          <option value="Physics">Physics</option>
-                          <option value="Music">Music</option>
-                          <option value="Finance">Finance</option>
-                          <option value="History">History</option>
-                          <option value="Math">Math</option>
+                          {(connectionMode === 'LIVE' ? [] : demoState.categories).map(cat => (
+                            <option key={cat.category_id} value={cat.name}>{cat.name}</option>
+                          ))}
+                          {connectionMode === 'LIVE' && (
+                            <>
+                              <option value="Breakfast">Breakfast</option>
+                              <option value="Lunch">Lunch</option>
+                              <option value="Dinner">Dinner</option>
+                            </>
+                          )}
                         </select>
                       </div>
                     )}
 
-                    {selectedProcedure === 'AddNewRecipe' && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {selectedProcedure === 'GetRecipeFavoriteCount' && (
+                      <div className="form-group">
+                        <label>@RecipeId</label>
+                        <select 
+                          className="form-select" 
+                          value={spParams.recipe_id} 
+                          onChange={e => setSpParams({ ...spParams, recipe_id: e.target.value })}
+                        >
+                          {(connectionMode === 'LIVE' ? [] : demoState.recipes).map(r => (
+                            <option key={r.recipe_id} value={r.recipe_id}>{r.recipe_id} - {r.title}</option>
+                          ))}
+                          {connectionMode === 'LIVE' && (
+                            <option value="1">1 - Classic Roasted Chicken</option>
+                          )}
+                        </select>
+                      </div>
+                    )}
+
+                    {selectedProcedure === 'ScalePrepTime' && (
+                      <div className="form-row-2">
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label>@category_name (Category Name)</label>
+                          <label>@TimeValue (initial prep time)</label>
                           <input 
-                            type="text" 
+                            type="number" 
                             className="form-input" 
-                            value={spParams.new_category_name} 
-                            onChange={e => setSpParams({ ...spParams, new_category_name: e.target.value })}
+                            value={spParams.time_value} 
+                            onChange={e => setSpParams({ ...spParams, time_value: e.target.value })}
                           />
                         </div>
-                        <div className="form-row-2">
-                          <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label>@type</label>
-                            <input 
-                              type="text" 
-                              className="form-input" 
-                              value={spParams.new_category_type} 
-                              onChange={e => setSpParams({ ...spParams, new_category_type: e.target.value })}
-                            />
-                          </div>
-                          <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label>@budget</label>
-                            <input 
-                              type="number" 
-                              className="form-input" 
-                              value={spParams.new_category_budget} 
-                              onChange={e => setSpParams({ ...spParams, new_category_budget: e.target.value })}
-                            />
-                          </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label>@ScaleFactor</label>
+                          <input 
+                            type="number" 
+                            step="0.1"
+                            className="form-input" 
+                            value={spParams.scale_factor} 
+                            onChange={e => setSpParams({ ...spParams, scale_factor: e.target.value })}
+                          />
                         </div>
                       </div>
                     )}
 
-                    {selectedProcedure === 'AddIngredient' && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '12px' }}>
-                        <div className="form-row-2">
-                          <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label>@ingredient_id (Ingredient ID)</label>
-                            <input 
-                              type="text" 
-                              className="form-input" 
-                              value={spParams.ingredient_id} 
-                              onChange={e => setSpParams({ ...spParams, ingredient_id: e.target.value })}
-                              placeholder="e.g. 88888"
-                            />
-                          </div>
-                          <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label>@ingredient_name (Name)</label>
-                            <input 
-                              type="text" 
-                              className="form-input" 
-                              value={spParams.ingredient_name} 
-                              onChange={e => setSpParams({ ...spParams, ingredient_name: e.target.value })}
-                            />
-                          </div>
+                    {selectedProcedure === 'AddNewUser' && (
+                      <div className="form-row-2">
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label>@UserHandle</label>
+                          <input 
+                            type="text" 
+                            className="form-input" 
+                            value={spParams.user_handle} 
+                            onChange={e => setSpParams({ ...spParams, user_handle: e.target.value })}
+                          />
                         </div>
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label>@inst_rating (Rating)</label>
+                          <label>@UserEmail</label>
                           <input 
-                            type="number" 
+                            type="email" 
                             className="form-input" 
-                            value={spParams.inst_rating} 
-                            onChange={e => setSpParams({ ...spParams, inst_rating: e.target.value })}
+                            value={spParams.user_email} 
+                            onChange={e => setSpParams({ ...spParams, user_email: e.target.value })}
                           />
                         </div>
                       </div>
@@ -1879,62 +1847,81 @@ function App() {
                     {selectedProcedure === 'UpdateRecipeCookTime' && (
                       <div className="form-row-2">
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label>@user_id (User ID)</label>
+                          <label>@RID (Recipe ID)</label>
                           <select 
                             className="form-select" 
-                            value={spParams.user_id} 
-                            onChange={e => setSpParams({ ...spParams, user_id: e.target.value })}
-                          >
-                            {(connectionMode === 'LIVE' ? [] : demoState.users).map(s => (
-                              <option key={s.user_id} value={s.user_id}>{s.user_id} - {s.name}</option>
+                            value={spParams.recipe_id} 
+                            onChange={e => setSpParams({ ...spParams, recipe_id: e.target.value })}
+                            >
+                            {(connectionMode === 'LIVE' ? [] : demoState.recipes).map(r => (
+                              <option key={r.recipe_id} value={r.recipe_id}>{r.recipe_id} - {r.title}</option>
                             ))}
                             {connectionMode === 'LIVE' && (
-                              <option value="00128">00128 - Zhang</option>
+                              <option value="1">1 - Classic Roasted Chicken</option>
                             )}
                           </select>
                         </div>
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label>@additional_points</label>
+                          <label>@NewTime</label>
                           <input 
                             type="number" 
                             className="form-input" 
-                            value={spParams.additional_points} 
-                            onChange={e => setSpParams({ ...spParams, additional_points: e.target.value })}
+                            value={spParams.new_time} 
+                            onChange={e => setSpParams({ ...spParams, new_time: e.target.value })}
                           />
                         </div>
                       </div>
                     )}
 
                     {selectedProcedure === 'RateRecipe' && (
-                      <div className="form-row-2">
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label>@ingredient_id (Ingredient ID)</label>
-                          <select 
-                            className="form-select" 
-                            value={spParams.ingredient_id} 
-                            onChange={e => setSpParams({ ...spParams, ingredient_id: e.target.value })}
-                          >
-                            {(connectionMode === 'LIVE' ? [] : demoState.ingredients).map(i => (
-                              <option key={i.ingredient_id} value={i.ingredient_id}>{i.ingredient_id} - {i.name}</option>
-                            ))}
-                            {connectionMode === 'LIVE' && (
-                              <option value="10101">10101 - Srinivasan</option>
-                            )}
-                          </select>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div className="form-row-2">
+                          <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label>@UID (User ID)</label>
+                            <select 
+                              className="form-select" 
+                              value={spParams.user_id} 
+                              onChange={e => setSpParams({ ...spParams, user_id: e.target.value })}
+                            >
+                              {(connectionMode === 'LIVE' ? [] : demoState.users).map(u => (
+                                <option key={u.user_id} value={u.user_id}>{u.user_id} - {u.username}</option>
+                              ))}
+                              {connectionMode === 'LIVE' && (
+                                <option value="1">1 - chef_mario</option>
+                              )}
+                            </select>
+                          </div>
+                          <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label>@RID (Recipe ID)</label>
+                            <select 
+                              className="form-select" 
+                              value={spParams.recipe_id} 
+                              onChange={e => setSpParams({ ...spParams, recipe_id: e.target.value })}
+                            >
+                              {(connectionMode === 'LIVE' ? [] : demoState.recipes).map(r => (
+                                <option key={r.recipe_id} value={r.recipe_id}>{r.recipe_id} - {r.title}</option>
+                              ))}
+                              {connectionMode === 'LIVE' && (
+                                <option value="1">1 - Classic Roasted Chicken</option>
+                              )}
+                            </select>
+                          </div>
                         </div>
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label>@increase_amount</label>
+                          <label>@Score (1-5)</label>
                           <input 
                             type="number" 
+                            min="1" 
+                            max="5" 
                             className="form-input" 
-                            value={spParams.increase_amount} 
-                            onChange={e => setSpParams({ ...spParams, increase_amount: e.target.value })}
+                            value={spParams.rating_score} 
+                            onChange={e => setSpParams({ ...spParams, rating_score: e.target.value })}
                           />
                         </div>
                       </div>
                     )}
 
-                    {!['GetRecipesByCategory', 'GetIngredientCountCategory', 'AddNewRecipe', 'AddIngredient', 'UpdateRecipeCookTime', 'RateRecipe'].includes(selectedProcedure) && (
+                    {!['GetRecipesByCategory', 'GetRecipeFavoriteCount', 'ScalePrepTime', 'AddNewUser', 'UpdateRecipeCookTime', 'RateRecipe'].includes(selectedProcedure) && (
                       <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                         This Stored Procedure takes <strong>0 arguments</strong>.
                       </div>
@@ -1949,16 +1936,14 @@ function App() {
                         onClick={() => {
                           let queryStr = '';
                           switch (selectedProcedure) {
-                            case 'GetRecipeDetails': queryStr = 'EXEC GetRecipeDetails;'; break;
-                            case 'CountRecipesCategory': queryStr = 'EXEC CountRecipesCategory;'; break;
-                            case 'GetRecipesByCategory': queryStr = `EXEC GetRecipesByCategory @category = '${spParams.category}';`; break;
-                            case 'GetIngredientCountCategory': queryStr = `DECLARE @count INT;\nEXEC GetIngredientCountCategory @category = '${spParams.category}', @inst_count = @count OUTPUT;\nSELECT @count AS ingredient_count;`; break;
-                            case 'AddNewRecipe': queryStr = `DECLARE @error_msg NVARCHAR(100);\nEXEC AddNewRecipe @category_name = '${spParams.new_category_name}', @type = '${spParams.new_category_type}', @budget = ${spParams.new_category_budget}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM category;`; break;
-                            case 'AddIngredient': queryStr = `DECLARE @error_msg NVARCHAR(100);\nEXEC AddIngredient @ingredient_id = '${spParams.ingredient_id}', @ingredient_name = '${spParams.ingredient_name}', @category = '${spParams.category}', @inst_rating = ${spParams.inst_rating}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM ingredient;`; break;
-                            case 'UpdateRecipeCookTime': queryStr = `DECLARE @error_msg NVARCHAR(100);\nEXEC UpdateRecipeCookTime @user_id = '${spParams.user_id}', @additional_points = ${spParams.additional_points}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM user;`; break;
-                            case 'RateRecipe': queryStr = `DECLARE @error_msg NVARCHAR(100);\nEXEC RateRecipe @ingredient_id = '${spParams.ingredient_id}', @increase_amount = ${spParams.increase_amount}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM ingredient;`; break;
-                            case 'GetUserFavorites': queryStr = 'EXEC GetUserFavorites;'; break;
-                            case 'GetRecipeRatings': queryStr = 'EXEC GetRecipeRatings;'; break;
+                            case 'GetIngredientDetails': queryStr = 'EXEC GetIngredientDetails;'; break;
+                            case 'CountRecipesByDifficulty': queryStr = 'EXEC CountRecipesByDifficulty;'; break;
+                            case 'GetRecipesByCategory': queryStr = `EXEC GetRecipesByCategory @CategoryName = '${spParams.category_name}';`; break;
+                            case 'GetRecipeFavoriteCount': queryStr = `DECLARE @FavCount INT;\nEXEC GetRecipeFavoriteCount @RecipeId = ${spParams.recipe_id}, @FavCount = @FavCount OUTPUT;\nSELECT @FavCount AS total_favorites;`; break;
+                            case 'ScalePrepTime': queryStr = `DECLARE @ScaledTime INT;\nEXEC ScalePrepTime @TimeValue = ${spParams.time_value}, @ScaleFactor = ${spParams.scale_factor}, @ScaledTime = @ScaledTime OUTPUT;\nSELECT @ScaledTime AS scaled_prep_time;`; break;
+                            case 'AddNewUser': queryStr = `DECLARE @StatusMsg NVARCHAR(100);\nEXEC AddNewUser @UserHandle = '${spParams.user_handle}', @UserEmail = '${spParams.user_email}', @StatusMsg = @StatusMsg OUTPUT;\nSELECT @StatusMsg AS status;\nSELECT * FROM Users;`; break;
+                            case 'UpdateRecipeCookTime': queryStr = `DECLARE @ErrMsg NVARCHAR(100);\nEXEC UpdateRecipeCookTime @RID = ${spParams.recipe_id}, @NewTime = ${spParams.new_time}, @ErrMsg = @ErrMsg OUTPUT;\nSELECT @ErrMsg AS message;\nSELECT * FROM Recipes;`; break;
+                            case 'RateRecipe': queryStr = `DECLARE @Status NVARCHAR(100);\nEXEC RateRecipe @UID = ${spParams.user_id}, @RID = ${spParams.recipe_id}, @Score = ${spParams.rating_score}, @Status = @Status OUTPUT;\nSELECT @Status AS status;\nSELECT * FROM Ratings;`; break;
                           }
                           setEditorSql(queryStr);
                           setSelectedQuery({
@@ -2056,91 +2041,100 @@ function App() {
                 <div className="card-body" style={{ padding: '20px' }}>
                   <div className="trigger-grid">
                     <div 
-                      className={`trigger-nav-card ${activeTriggerTab === 'difficulty' ? 'active' : ''}`}
-                      onClick={() => setActiveTriggerTab('difficulty')}
+                      className={`trigger-nav-card ${activeTriggerTab === 'total_time' ? 'active' : ''}`}
+                      onClick={() => setActiveTriggerTab('total_time')}
                     >
                       <div className="trigger-icon">
                         <Calendar size={16} />
                       </div>
                       <div>
-                        <div className="trigger-title">trg_update_age</div>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Calculates user age</div>
+                        <div className="trigger-title">trg_update_total_time</div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Calculates total time</div>
                       </div>
                     </div>
 
                     <div 
-                      className={`trigger-nav-card ${activeTriggerTab === 'rating' ? 'active' : ''}`}
-                      onClick={() => setActiveTriggerTab('rating')}
+                      className={`trigger-nav-card ${activeTriggerTab === 'cook_limit' ? 'active' : ''}`}
+                      onClick={() => setActiveTriggerTab('cook_limit')}
                     >
                       <div className="trigger-icon">
                         <AlertTriangle size={16} />
                       </div>
                       <div>
-                        <div className="trigger-title">check_capacity</div>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Instead of insert error</div>
+                        <div className="trigger-title">check_recipe_cook_time_limit</div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Blocks long cook times</div>
                       </div>
                     </div>
 
                     <div 
-                      className={`trigger-nav-card ${activeTriggerTab === 'recipe_audit' ? 'active' : ''}`}
-                      onClick={() => setActiveTriggerTab('recipe_audit')}
+                      className={`trigger-nav-card ${activeTriggerTab === 'user_audit' ? 'active' : ''}`}
+                      onClick={() => setActiveTriggerTab('user_audit')}
                     >
                       <div className="trigger-icon">
                         <GitCommit size={16} />
                       </div>
                       <div>
-                        <div className="trigger-title">log_category_audit</div>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Logs inserts & deletes</div>
+                        <div className="trigger-title">log_user_registration/deletion</div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Logs user changes</div>
                       </div>
                     </div>
 
                     <div 
-                      className={`trigger-nav-card ${activeTriggerTab === 'prevent_negative' ? 'active' : ''}`}
-                      onClick={() => setActiveTriggerTab('prevent_negative')}
+                      className={`trigger-nav-card ${activeTriggerTab === 'rating_protection' ? 'active' : ''}`}
+                      onClick={() => setActiveTriggerTab('rating_protection')}
                     >
                       <div className="trigger-icon">
                         <TrendingUp size={16} />
                       </div>
                       <div>
-                        <div className="trigger-title">rating_nodecrease</div>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Rollback rating drops</div>
+                        <div className="trigger-title">safety_rating_protection</div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Protects rating drops</div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Scenario 1: Age Trigger */}
-                  {activeTriggerTab === 'difficulty' && (
+                  {/* Scenario 1: Total Time Trigger */}
+                  {activeTriggerTab === 'total_time' && (
                     <div className="animate-fadeIn">
                       <div className="alert alert-info">
                         <Info size={16} />
-                        <span><strong>Trigger Logic:</strong> Fires AFTER INSERT/UPDATE on user. If Date of Birth (DoB) is modified, SQL Server calculates the years difference relative to GETDATE() and updates the <code>age</code> column automatically!</span>
+                        <span><strong>Trigger Logic:</strong> Fires AFTER INSERT/UPDATE on Recipes. Automatically calculates <code>total_time = prep_time + cook_time</code>!</span>
                       </div>
                       
                       <div className="form-row-2">
                         <div className="form-group">
-                          <label>Target User</label>
+                          <label>Target Recipe</label>
                           <select 
                             className="form-select"
-                            value={triggerAgeForm.user_id}
-                            onChange={e => setTriggerAgeForm({ ...triggerAgeForm, user_id: e.target.value })}
+                            value={triggerAgeForm.recipe_id || 1}
+                            onChange={e => setTriggerAgeForm({ ...triggerAgeForm, recipe_id: e.target.value })}
                           >
-                            {(connectionMode === 'LIVE' ? [] : demoState.users).map(s => (
-                              <option key={s.user_id} value={s.user_id}>{s.user_id} - {s.name} (Age: {s.age || 'N/A'})</option>
+                            {(connectionMode === 'LIVE' ? [] : demoState.recipes).map(r => (
+                              <option key={r.recipe_id} value={r.recipe_id}>{r.recipe_id} - {r.title} (Total: {r.total_time || (r.prep_time + r.cook_time)} mins)</option>
                             ))}
                             {connectionMode === 'LIVE' && (
-                              <option value="00128">00128 - Zhang</option>
+                              <option value="1">1 - Classic Roasted Chicken</option>
                             )}
                           </select>
                         </div>
                         <div className="form-group">
-                          <label>Change Date of Birth (DoB)</label>
+                          <label>New Prep Time (mins)</label>
                           <input 
-                            type="date" 
+                            type="number" 
                             className="form-input" 
-                            value={triggerAgeForm.dob}
-                            onChange={e => setTriggerAgeForm({ ...triggerAgeForm, dob: e.target.value })}
+                            value={triggerAgeForm.prep_time || 20}
+                            onChange={e => setTriggerAgeForm({ ...triggerAgeForm, prep_time: e.target.value })}
                           />
                         </div>
+                      </div>
+                      <div className="form-group">
+                        <label>New Cook Time (mins)</label>
+                        <input 
+                          type="number" 
+                          className="form-input" 
+                          value={triggerAgeForm.cook_time || 60}
+                          onChange={e => setTriggerAgeForm({ ...triggerAgeForm, cook_time: e.target.value })}
+                        />
                       </div>
                       
                       <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
@@ -2148,12 +2142,12 @@ function App() {
                           className="btn btn-secondary" 
                           style={{ flex: 1 }}
                           onClick={() => {
-                            const queryStr = `UPDATE user SET DoB = '${triggerAgeForm.dob}' WHERE user_id = '${triggerAgeForm.user_id}';\nSELECT * FROM user;`;
+                            const queryStr = `UPDATE Recipes SET prep_time = ${triggerAgeForm.prep_time || 20}, cook_time = ${triggerAgeForm.cook_time || 60} WHERE recipe_id = ${triggerAgeForm.recipe_id || 1};\nSELECT * FROM Recipes WHERE recipe_id = ${triggerAgeForm.recipe_id || 1};`;
                             setEditorSql(queryStr);
                             setSelectedQuery({
-                              id: 'trigger-age',
-                              title: 'Trigger Action: trg_update_age',
-                              explanation: 'Update DOB on user table to trigger age auto-calculation.',
+                              id: 'trigger-total-time',
+                              title: 'Trigger Action: trg_update_total_time',
+                              explanation: 'Update prep/cook time to trigger total_time auto-calculation.',
                               sql: queryStr
                             });
                             setActiveTab('query');
@@ -2164,51 +2158,69 @@ function App() {
                         >
                           Open in Console
                         </button>
-                        <button className="btn btn-primary" onClick={() => handleTriggerAction('age')} style={{ flex: 2 }}>
-                          Trigger Age Re-calculation
+                        <button className="btn btn-primary" onClick={() => handleTriggerAction('total_time')} style={{ flex: 2 }}>
+                          Trigger Total Time Calculation
                         </button>
                       </div>
                     </div>
                   )}
 
-                  {/* Scenario 2: Capacity Restrictions Trigger */}
-                  {activeTriggerTab === 'rating' && (
+                  {/* Scenario 2: Cook Time Limit Trigger */}
+                  {activeTriggerTab === 'cook_limit' && (
                     <div className="animate-fadeIn">
                       <div className="alert alert-warning">
                         <AlertTriangle size={16} style={{ flexShrink: 0 }} />
-                        <span><strong>Trigger Logic:</strong> INSTEAD OF INSERT trigger on categorys. If the capacity is higher than 200, SQL Server blocks the transaction, triggers RAISERROR, and executes an explicit ROLLBACK!</span>
+                        <span><strong>Trigger Logic:</strong> INSTEAD OF INSERT trigger on Recipes. Blocks insertion if cook_time &gt; 480 minutes (8 hours)!</span>
                       </div>
 
                       <div className="form-row-2">
                         <div className="form-group">
-                          <label>Building Name</label>
+                          <label>Recipe Title</label>
                           <input 
                             type="text" 
                             className="form-input" 
-                            value={triggerCapForm.type} 
-                            onChange={e => setTriggerCapForm({ ...triggerCapForm, type: e.target.value })}
+                            value={triggerCapForm.title || 'Super Long Cook Recipe'} 
+                            onChange={e => setTriggerCapForm({ ...triggerCapForm, title: e.target.value })}
                           />
                         </div>
                         <div className="form-group">
-                          <label>Room Number</label>
+                          <label>User ID</label>
                           <input 
-                            type="text" 
+                            type="number" 
                             className="form-input" 
-                            value={triggerCapForm.sub_type} 
-                            onChange={e => setTriggerCapForm({ ...triggerCapForm, sub_type: e.target.value })}
+                            value={triggerCapForm.user_id || 1} 
+                            onChange={e => setTriggerCapForm({ ...triggerCapForm, user_id: e.target.value })}
                           />
                         </div>
                       </div>
-                      
+                      <div className="form-row-2">
+                        <div className="form-group">
+                          <label>Prep Time (mins)</label>
+                          <input 
+                            type="number" 
+                            className="form-input" 
+                            value={triggerCapForm.prep_time || 30} 
+                            onChange={e => setTriggerCapForm({ ...triggerCapForm, prep_time: e.target.value })}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Cook Time (Attempt to trigger &gt; 480 to block)</label>
+                          <input 
+                            type="number" 
+                            className="form-input" 
+                            value={triggerCapForm.cook_time || 500} 
+                            onChange={e => setTriggerCapForm({ ...triggerCapForm, cook_time: e.target.value })}
+                            placeholder="e.g. 500 to block, 300 to pass"
+                          />
+                        </div>
+                      </div>
                       <div className="form-group">
-                        <label>Capacity (Attempts to trigger capacity exception &gt; 200)</label>
-                        <input 
-                          type="number" 
-                          className="form-input" 
-                          value={triggerCapForm.capacity} 
-                          onChange={e => setTriggerCapForm({ ...triggerCapForm, capacity: e.target.value })}
-                          placeholder="e.g. 250 to block, 150 to pass"
-                        />
+                        <label>Difficulty</label>
+                        <select className="form-select" value={triggerCapForm.difficulty || 'Hard'} onChange={e => setTriggerCapForm({ ...triggerCapForm, difficulty: e.target.value })}>
+                          <option value="Easy">Easy</option>
+                          <option value="Medium">Medium</option>
+                          <option value="Hard">Hard</option>
+                        </select>
                       </div>
 
                       <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
@@ -2216,12 +2228,12 @@ function App() {
                           className="btn btn-secondary" 
                           style={{ flex: 1 }}
                           onClick={() => {
-                            const queryStr = `INSERT INTO category (type, sub_type, capacity)\nVALUES ('${triggerCapForm.type}', '${triggerCapForm.sub_type}', ${triggerCapForm.capacity});`;
+                            const queryStr = `INSERT INTO Recipes (user_id, title, prep_time, cook_time, difficulty)\nVALUES (${triggerCapForm.user_id || 1}, '${triggerCapForm.title || 'Test Recipe'}', ${triggerCapForm.prep_time || 30}, ${triggerCapForm.cook_time || 500}, '${triggerCapForm.difficulty || 'Hard'}');`;
                             setEditorSql(queryStr);
                             setSelectedQuery({
-                              id: 'trigger-capacity',
-                              title: 'Trigger Action: check_capacity',
-                              explanation: 'Insert into category table to trigger INSTEAD OF check capacity <= 200 restriction.',
+                              id: 'trigger-cook-limit',
+                              title: 'Trigger Action: check_recipe_cook_time_limit',
+                              explanation: 'Insert recipe to test cook time limit trigger.',
                               sql: queryStr
                             });
                             setActiveTab('query');
@@ -2232,19 +2244,19 @@ function App() {
                         >
                           Open in Console
                         </button>
-                        <button className="btn btn-primary" onClick={() => handleTriggerAction('capacity')} style={{ flex: 2 }}>
-                          Attempt Category Insertion
+                        <button className="btn btn-primary" onClick={() => handleTriggerAction('cook_limit')} style={{ flex: 2 }}>
+                          Attempt Recipe Insertion
                         </button>
                       </div>
                     </div>
                   )}
 
-                  {/* Scenario 3: Audit Logging Trigger */}
-                  {activeTriggerTab === 'recipe_audit' && (
+                  {/* Scenario 3: User Audit Logging Trigger */}
+                  {activeTriggerTab === 'user_audit' && (
                     <div className="animate-fadeIn">
                       <div className="alert alert-info">
                         <Info size={16} />
-                        <span><strong>Trigger Logic:</strong> Fires AFTER INSERT & AFTER DELETE on category. It automatically grabs values from the T-SQL <code>inserted</code> or <code>deleted</code> tables and populates a <code>category_log</code> audit table with dates & actions!</span>
+                        <span><strong>Trigger Logic:</strong> Fires AFTER INSERT & AFTER DELETE on Users. Logs changes to <code>Users_Audit_Log</code>!</span>
                       </div>
 
                       <div className="form-row-2">
@@ -2252,44 +2264,33 @@ function App() {
                           <label>Trigger Action</label>
                           <select 
                             className="form-select"
-                            value={triggerDeptForm.action}
+                            value={triggerDeptForm.action || 'insert'}
                             onChange={e => setTriggerDeptForm({ ...triggerDeptForm, action: e.target.value })}
                           >
-                            <option value="insert">INSERT Category (Fires Insert Trigger)</option>
-                            <option value="delete">DELETE Category (Fires Delete Trigger)</option>
+                            <option value="insert">INSERT User (Fires Insert Trigger)</option>
+                            <option value="delete">DELETE User (Fires Delete Trigger)</option>
                           </select>
                         </div>
                         <div className="form-group">
-                          <label>Category Name</label>
+                          <label>Username</label>
                           <input 
                             type="text" 
                             className="form-input" 
-                            value={triggerDeptForm.category_name} 
-                            onChange={e => setTriggerDeptForm({ ...triggerDeptForm, category_name: e.target.value })}
+                            value={triggerDeptForm.username || 'new_chef'} 
+                            onChange={e => setTriggerDeptForm({ ...triggerDeptForm, username: e.target.value })}
                           />
                         </div>
                       </div>
 
                       {triggerDeptForm.action === 'insert' && (
-                        <div className="form-row-2 animate-fadeIn">
-                          <div className="form-group">
-                            <label>Building</label>
-                            <input 
-                              type="text" 
-                              className="form-input" 
-                              value={triggerDeptForm.type} 
-                              onChange={e => setTriggerDeptForm({ ...triggerDeptForm, type: e.target.value })}
-                            />
-                          </div>
-                          <div className="form-group">
-                            <label>Budget</label>
-                            <input 
-                              type="number" 
-                              className="form-input" 
-                              value={triggerDeptForm.budget} 
-                              onChange={e => setTriggerDeptForm({ ...triggerDeptForm, budget: e.target.value })}
-                            />
-                          </div>
+                        <div className="form-group">
+                          <label>Email</label>
+                          <input 
+                            type="email" 
+                            className="form-input" 
+                            value={triggerDeptForm.email || 'new_chef@example.com'} 
+                            onChange={e => setTriggerDeptForm({ ...triggerDeptForm, email: e.target.value })}
+                          />
                         </div>
                       )}
 
@@ -2300,15 +2301,15 @@ function App() {
                           onClick={() => {
                             let queryStr = '';
                             if (triggerDeptForm.action === 'insert') {
-                              queryStr = `INSERT INTO category (category_name, type, budget)\nVALUES ('${triggerDeptForm.category_name}', '${triggerDeptForm.type}', ${triggerDeptForm.budget});\nSELECT * FROM category_log ORDER BY log_id DESC;`;
+                              queryStr = `INSERT INTO Users (username, email)\nVALUES ('${triggerDeptForm.username || 'new_user'}', '${triggerDeptForm.email || 'user@example.com'}');\nSELECT * FROM Users_Audit_Log ORDER BY audit_id DESC;`;
                             } else {
-                              queryStr = `DELETE FROM category WHERE category_name = '${triggerDeptForm.category_name}';\nSELECT * FROM category_log ORDER BY log_id DESC;`;
+                              queryStr = `DELETE FROM Users WHERE username = '${triggerDeptForm.username || 'new_user'}';\nSELECT * FROM Users_Audit_Log ORDER BY audit_id DESC;`;
                             }
                             setEditorSql(queryStr);
                             setSelectedQuery({
-                              id: 'trigger-audit',
-                              title: `Trigger Action: log_category_${triggerDeptForm.action}`,
-                              explanation: 'DML on category to trigger category audit logging.',
+                              id: 'trigger-user-audit',
+                              title: `Trigger Action: User Audit ${triggerDeptForm.action}`,
+                              explanation: 'DML on Users to trigger audit logging.',
                               sql: queryStr
                             });
                             setActiveTab('query');
@@ -2319,52 +2320,53 @@ function App() {
                         >
                           Open in Console
                         </button>
-                        <button className="btn btn-primary" onClick={() => handleTriggerAction('audit')} style={{ flex: 2 }}>
-                          Trigger Category Audit Action
+                        <button className="btn btn-primary" onClick={() => handleTriggerAction('user_audit')} style={{ flex: 2 }}>
+                          Trigger User Audit Action
                         </button>
                       </div>
                     </div>
                   )}
 
-                  {/* Scenario 4: Rating Rollbacks */}
-                  {activeTriggerTab === 'prevent_negative' && (
+                  {/* Scenario 4: Rating Protection */}
+                  {activeTriggerTab === 'rating_protection' && (
                     <div className="animate-fadeIn">
                       <div className="alert alert-warning">
                         <AlertTriangle size={16} style={{ flexShrink: 0 }} />
-                        <span><strong>Trigger Logic:</strong> AFTER UPDATE trigger [rating_nodecrease] on ingredients. Compares the T-SQL <code>inserted.rating</code> with the previous <code>deleted.rating</code>. If the new rating is lower, it triggers a raiserror rollback block!</span>
+                        <span><strong>Trigger Logic:</strong> AFTER UPDATE trigger on Ratings. Blocks updates that drop rating_score by more than 2 points!</span>
                       </div>
 
                       <div className="form-row-2">
                         <div className="form-group">
-                          <label>Faculty Member</label>
+                          <label>Target Rating</label>
                           <select 
                             className="form-select"
-                            value={triggerSalForm.ingredient_id}
+                            value={triggerSalForm.rating_id || 1}
                             onChange={e => {
-                              const inst = demoState.ingredients.find(i => i.ingredient_id === e.target.value);
+                              const rt = demoState.ratings.find(r => r.rating_id == e.target.value);
                               setTriggerSalForm({
                                 ...triggerSalForm,
-                                ingredient_id: e.target.value,
-                                current_rating: inst ? inst.rating : 90000
+                                rating_id: e.target.value,
+                                current_rating: rt ? rt.rating_score : 5
                               });
                             }}
                           >
-                            {(connectionMode === 'LIVE' ? [] : demoState.ingredients).map(i => (
-                              <option key={i.ingredient_id} value={i.ingredient_id}>{i.ingredient_id} - {i.name} (Rating: ${i.rating})</option>
+                            {(connectionMode === 'LIVE' ? [] : demoState.ratings).map(rt => (
+                              <option key={rt.rating_id} value={rt.rating_id}>{rt.rating_id} - User {rt.user_id} rated Recipe {rt.recipe_id} ({rt.rating_score}/5)</option>
                             ))}
                             {connectionMode === 'LIVE' && (
-                              <option value="12121">12121 - Wu (Rating: $90000)</option>
+                              <option value="1">1 - Rating #1 (5/5)</option>
                             )}
                           </select>
                         </div>
                         <div className="form-group">
-                          <label>New Rating Amount</label>
+                          <label>New Rating (1-5)</label>
                           <input 
                             type="number" 
                             className="form-input" 
-                            value={triggerSalForm.new_rating} 
+                            min="1" max="5"
+                            value={triggerSalForm.new_rating || 2} 
                             onChange={e => setTriggerSalForm({ ...triggerSalForm, new_rating: e.target.value })}
-                            placeholder="Lower than current to block, higher to pass"
+                            placeholder="Drop by >2 to block"
                           />
                         </div>
                       </div>
@@ -2374,12 +2376,12 @@ function App() {
                           className="btn btn-secondary" 
                           style={{ flex: 1 }}
                           onClick={() => {
-                            const queryStr = `UPDATE ingredient SET rating = ${triggerSalForm.new_rating} WHERE ingredient_id = '${triggerSalForm.ingredient_id}';`;
+                            const queryStr = `UPDATE Ratings SET rating_score = ${triggerSalForm.new_rating || 2} WHERE rating_id = ${triggerSalForm.rating_id || 1};`;
                             setEditorSql(queryStr);
                             setSelectedQuery({
-                              id: 'trigger-rating',
-                              title: 'Trigger Action: rating_nodecrease',
-                              explanation: 'Update rating on ingredient table to trigger rating nodecrease checks.',
+                              id: 'trigger-rating-protection',
+                              title: 'Trigger Action: safety_rating_protection',
+                              explanation: 'Update rating to test protection trigger.',
                               sql: queryStr
                             });
                             setActiveTab('query');
@@ -2390,8 +2392,8 @@ function App() {
                         >
                           Open in Console
                         </button>
-                        <button className="btn btn-primary" onClick={() => handleTriggerAction('rating')} style={{ flex: 2 }}>
-                          Update Ingredient Rating
+                        <button className="btn btn-primary" onClick={() => handleTriggerAction('rating_protection')} style={{ flex: 2 }}>
+                          Test Rating Protection
                         </button>
                       </div>
                     </div>
@@ -2420,13 +2422,13 @@ function App() {
                 </div>
               </div>
 
-              {/* Category Audit Log Viewer */}
-              {activeTriggerTab === 'recipe_audit' && (
+              {/* User Audit Log Viewer */}
+              {activeTriggerTab === 'user_audit' && (
                 <div className="glass-panel animate-fadeIn">
                   <div className="card-header">
                     <div className="card-title">
                       <GitCommit size={16} />
-                      Log Table: category_log (Audited Records)
+                      Log Table: Users_Audit_Log (Audited Records)
                     </div>
                   </div>
                   <div className="card-body" style={{ maxHeight: '280px', overflowY: 'auto' }}>
@@ -2434,37 +2436,39 @@ function App() {
                       <table className="data-table">
                         <thead>
                           <tr>
-                            <th>log_id</th>
-                            <th>category_name</th>
-                            <th>budget</th>
-                            <th>action</th>
-                            <th>log_time</th>
+                            <th>audit_id</th>
+                            <th>user_id</th>
+                            <th>username</th>
+                            <th>email</th>
+                            <th>action_type</th>
+                            <th>logged_at</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {(connectionMode === 'LIVE' ? [] : demoState.category_log).map(log => (
-                            <tr key={log.log_id}>
-                              <td style={{ fontFamily: 'var(--font-mono)' }}>{log.log_id}</td>
-                              <td style={{ fontWeight: 600 }}>{log.category_name}</td>
-                              <td>${log.budget}</td>
+                          {(connectionMode === 'LIVE' ? [] : demoState.users_audit_log || []).map(log => (
+                            <tr key={log.audit_id}>
+                              <td style={{ fontFamily: 'var(--font-mono)' }}>{log.audit_id}</td>
+                              <td>{log.user_id}</td>
+                              <td style={{ fontWeight: 600 }}>{log.username}</td>
+                              <td>{log.email}</td>
                               <td>
                                 <span style={{ 
                                   padding: '2px 6px', 
                                   borderRadius: '4px', 
                                   fontSize: '0.72rem',
                                   fontWeight: 600,
-                                  background: log.action === 'insert' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                                  color: log.action === 'insert' ? 'var(--success)' : 'var(--danger)'
+                                  background: log.action_type === 'INSERT' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                                  color: log.action_type === 'INSERT' ? 'var(--success)' : 'var(--danger)'
                                 }}>
-                                  {log.action.toUpperCase()}
+                                  {log.action_type}
                                 </span>
                               </td>
-                              <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{log.log_time}</td>
+                              <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{log.logged_at}</td>
                             </tr>
                           ))}
                           {connectionMode === 'LIVE' && (
                             <tr>
-                              <td colSpan={5} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
+                              <td colSpan={6} style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
                                 Live table logs will fetch directly from SQL Server during trigger activations!
                               </td>
                             </tr>
