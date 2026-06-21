@@ -1,6 +1,6 @@
-# Contributing to UniDB Database Project
+# Contributing to RecipeDB Database Project
 
-We welcome contributions to the UniDB Database Project! Here's how you can help:
+We welcome contributions to the RecipeDB Database Project! Here's how you can help:
 
 ## How to Contribute
 

@@ -1,4 +1,4 @@
-# UniDB Database Project
+# RecipeDB Database Project
 
 A university database project with frontend and backend components.
 
@@ -8,7 +8,7 @@ A university database project with frontend and backend components.
 Uni Database Project/
 ├── backend/          # Node.js/Express API server
 ├── frontend/         # React/Vite frontend application
-├── Uni_DB.sql        # Database schema file
+├── Recipe_DB.sql        # Database schema file
 └── run-app.bat       # Application startup script
 ```
 

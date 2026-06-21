@@ -1,7 +1,7 @@
 {
-  "name": "unidb-backend",
+  "name": "recipedb-backend",
   "version": "1.0.0",
-  "description": "SQL Server API Server for UniDB Showcase Studio",
+  "description": "SQL Server API Server for Recipe DB Showcase Studio",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

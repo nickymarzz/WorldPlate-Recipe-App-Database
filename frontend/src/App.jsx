@@ -39,8 +39,8 @@ function executeLocalQuery(sql, state, setDemoState) {
           if (!cat) return { success: true, data: [] };
           const recIds = state.recipe_categories.filter(rc => rc.category_id === cat.category_id).map(rc => rc.recipe_id);
           return { success: true, data: state.recipes.filter(r => recIds.includes(r.recipe_id)) };
-        case 'GetIngredientCountRecipe': {
-          if (!paramVal) throw new Error("GetIngredientCountRecipe expects @recipe_id parameter");
+        case 'GetIngredientCountCategory': {
+          if (!paramVal) throw new Error("GetIngredientCountCategory expects @recipe_id parameter");
           const cnt = state.recipe_ingredients.filter(ri => String(ri.recipe_id) === String(paramVal)).length;
           return { success: true, data: [{ recipe_id: paramVal, ingredient_count: cnt }] };
         }
@@ -252,8 +252,8 @@ function executeLocalQuery(sql, state, setDemoState) {
       data = data.filter(r => r.budget >= 70000 && r.budget <= 80000);
     } else if (whereLower.includes("title like '%intro%'")) {
       data = data.filter(r => String(r.title).toLowerCase().includes('intro'));
-    } else if (whereLower.includes("dept_name = 'physics'")) {
-      data = data.filter(r => r.dept_name === 'Physics');
+    } else if (whereLower.includes("category_name = 'physics'")) {
+      data = data.filter(r => r.category_name === 'Physics');
     } else if (whereLower.includes("name like 's%'")) {
       data = data.filter(r => String(r.name).toLowerCase().startsWith('s'));
     } else {
@@ -397,10 +397,10 @@ function App() {
 
   // Triggers Playground State
   const [activeTriggerTab, setActiveTriggerTab] = useState('age');
-  const [triggerAgeForm, setTriggerAgeForm] = useState({ student_id: '00128', dob: '1998-05-15' });
-  const [triggerCapForm, setTriggerCapForm] = useState({ building: 'Watson', room_number: '122', capacity: '250' });
-  const [triggerDeptForm, setTriggerDeptForm] = useState({ action: 'insert', dept_name: 'New AI1', building: 'Taylor', budget: '210000' });
-  const [triggerSalForm, setTriggerSalForm] = useState({ instructor_id: '12121', current_salary: 90000, new_salary: '85000' });
+  const [triggerAgeForm, setTriggerAgeForm] = useState({ user_id: '00128', dob: '1998-05-15' });
+  const [triggerCapForm, setTriggerCapForm] = useState({ type: 'Watson', sub_type: '122', capacity: '250' });
+  const [triggerDeptForm, setTriggerDeptForm] = useState({ action: 'insert', category_name: 'New AI1', type: 'Taylor', budget: '210000' });
+  const [triggerSalForm, setTriggerSalForm] = useState({ ingredient_id: '12121', current_rating: 90000, new_rating: '85000' });
   const [triggerConsole, setTriggerConsole] = useState({ type: 'info', text: 'Output terminal. Trigger actions will show updates here.' });
   
   // Benchmark State
@@ -567,22 +567,22 @@ function App() {
         query = 'EXEC CountRecipesCategory;';
         break;
       case 'GetRecipesByCategory':
-        query = `EXEC GetRecipesByCategory @dept = '${spParams.dept}';`;
+        query = `EXEC GetRecipesByCategory @category = '${spParams.category}';`;
         break;
-      case 'GetIngredientCountRecipe':
-        query = `DECLARE @count INT;\nEXEC GetIngredientCountRecipe @dept = '${spParams.dept}', @inst_count = @count OUTPUT;\nSELECT @count AS instructor_count;`;
+      case 'GetIngredientCountCategory':
+        query = `DECLARE @count INT;\nEXEC GetIngredientCountCategory @category = '${spParams.category}', @inst_count = @count OUTPUT;\nSELECT @count AS ingredient_count;`;
         break;
       case 'AddNewRecipe':
-        query = `DECLARE @error_msg NVARCHAR(100);\nEXEC AddNewRecipe @dept_name = '${spParams.new_dept_name}', @building = '${spParams.new_dept_building}', @budget = ${spParams.new_dept_budget}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM department;`;
+        query = `DECLARE @error_msg NVARCHAR(100);\nEXEC AddNewRecipe @category_name = '${spParams.new_category_name}', @type = '${spParams.new_category_type}', @budget = ${spParams.new_category_budget}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM category;`;
         break;
       case 'AddIngredient':
-        query = `DECLARE @error_msg NVARCHAR(100);\nEXEC AddIngredient @inst_id = '${spParams.inst_id}', @inst_name = '${spParams.inst_name}', @dept = '${spParams.dept}', @inst_salary = ${spParams.inst_salary}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM instructor;`;
+        query = `DECLARE @error_msg NVARCHAR(100);\nEXEC AddIngredient @ingredient_id = '${spParams.ingredient_id}', @ingredient_name = '${spParams.ingredient_name}', @category = '${spParams.category}', @inst_rating = ${spParams.inst_rating}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM ingredient;`;
         break;
       case 'UpdateRecipeCookTime':
-        query = `DECLARE @error_msg NVARCHAR(100);\nEXEC UpdateRecipeCookTime @stud_id = '${spParams.stud_id}', @additional_credits = ${spParams.additional_credits}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM student;`;
+        query = `DECLARE @error_msg NVARCHAR(100);\nEXEC UpdateRecipeCookTime @user_id = '${spParams.user_id}', @additional_points = ${spParams.additional_points}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM user;`;
         break;
       case 'RateRecipe':
-        query = `DECLARE @error_msg NVARCHAR(100);\nEXEC RateRecipe @inst_id = '${spParams.inst_id}', @increase_amount = ${spParams.increase_amount}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM instructor;`;
+        query = `DECLARE @error_msg NVARCHAR(100);\nEXEC RateRecipe @ingredient_id = '${spParams.ingredient_id}', @increase_amount = ${spParams.increase_amount}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM ingredient;`;
         break;
       case 'GetUserFavorites':
         query = 'EXEC GetUserFavorites;';
@@ -607,8 +607,8 @@ function App() {
           const duration = result.durationMs;
           
           // Custom parsing for output queries
-          if (selectedProcedure === 'GetIngredientCountRecipe') {
-            const count = result.data[0]?.instructor_count;
+          if (selectedProcedure === 'GetIngredientCountCategory') {
+            const count = result.data[0]?.ingredient_count;
             setSpConsole({
               type: 'success',
               text: `Stored Procedure executed successfully in ${duration}ms.\nOutput Param @inst_count = ${count}\n\nT-SQL Code:\n${query}`
@@ -652,136 +652,136 @@ function App() {
         
         switch (selectedProcedure) {
           case 'GetRecipeDetails':
-            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\n\nReturns classroom details list.` });
-            setSpResults(demoState.classroom);
+            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\n\nReturns category details list.` });
+            setSpResults(demoState.categories);
             break;
             
           case 'CountRecipesCategory':
-            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\n\nCounts courses grouped by department.` });
+            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\n\nCounts recipes grouped by category.` });
             const counts = {};
-            demoState.course.forEach(c => {
-              counts[c.dept_name] = (counts[c.dept_name] || 0) + 1;
+            demoState.recipes.forEach(c => {
+              counts[c.category_name] = (counts[c.category_name] || 0) + 1;
             });
-            setSpResults(Object.keys(counts).map(dept => ({ dept_name: dept, course_count: counts[dept] })));
+            setSpResults(Object.keys(counts).map(category => ({ category_name: category, recipe_count: counts[category] })));
             break;
             
           case 'GetRecipesByCategory':
-            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\nParams: @dept = '${spParams.dept}'` });
-            setSpResults(demoState.course.filter(c => c.dept_name === spParams.dept));
+            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\nParams: @category = '${spParams.category}'` });
+            setSpResults(demoState.recipes.filter(c => c.category_name === spParams.category));
             break;
             
-          case 'GetIngredientCountRecipe':
-            const cnt = demoState.instructor.filter(i => i.dept_name === spParams.dept).length;
-            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\nParams: @dept = '${spParams.dept}'\nOutput Param @inst_count = ${cnt}` });
-            setSpResults([{ dept_name: spParams.dept, instructor_count: cnt }]);
+          case 'GetIngredientCountCategory':
+            const cnt = demoState.ingredients.filter(i => i.category_name === spParams.category).length;
+            setSpConsole({ type: 'success', text: `Demo Executed successfully in ${duration}ms.\nParams: @category = '${spParams.category}'\nOutput Param @inst_count = ${cnt}` });
+            setSpResults([{ category_name: spParams.category, ingredient_count: cnt }]);
             break;
             
           case 'AddNewRecipe':
-            if (demoState.department.some(d => d.dept_name === spParams.new_dept_name)) {
-              setSpConsole({ type: 'error', text: `Error: Department '${spParams.new_dept_name}' already exists.\nTransaction rolled back.` });
-            } else if (parseFloat(spParams.new_dept_budget) <= 0) {
+            if (demoState.category.some(d => d.category_name === spParams.new_category_name)) {
+              setSpConsole({ type: 'error', text: `Error: Category '${spParams.new_category_name}' already exists.\nTransaction rolled back.` });
+            } else if (parseFloat(spParams.new_category_budget) <= 0) {
               setSpConsole({ type: 'error', text: 'Error: Budget must be greater than 0.' });
             } else {
               const newDept = {
-                dept_name: spParams.new_dept_name,
-                building: spParams.new_dept_building,
-                budget: parseFloat(spParams.new_dept_budget)
+                category_name: spParams.new_category_name,
+                type: spParams.new_category_type,
+                budget: parseFloat(spParams.new_category_budget)
               };
               setDemoState(prev => ({
                 ...prev,
-                department: [...prev.department, newDept]
+                category: [...prev.category, newDept]
               }));
-              setSpConsole({ type: 'success', text: `Department '${spParams.new_dept_name}' added successfully to Demo state in ${duration}ms.` });
-              setSpResults([...demoState.department, newDept]);
+              setSpConsole({ type: 'success', text: `Category '${spParams.new_category_name}' added successfully to Demo state in ${duration}ms.` });
+              setSpResults([...demoState.category, newDept]);
             }
             break;
             
           case 'AddIngredient':
-            if (demoState.instructor.some(i => i.instructor_id === spParams.inst_id)) {
-              setSpConsole({ type: 'error', text: `Error: Instructor ID '${spParams.inst_id}' already exists.\nFAILED insertion.` });
+            if (demoState.ingredients.some(i => i.ingredient_id === spParams.ingredient_id)) {
+              setSpConsole({ type: 'error', text: `Error: Ingredient ID '${spParams.ingredient_id}' already exists.\nFAILED insertion.` });
             } else {
               const newInst = {
-                instructor_id: spParams.inst_id,
-                name: spParams.inst_name,
-                dept_name: spParams.dept,
-                salary: parseFloat(spParams.inst_salary)
+                ingredient_id: spParams.ingredient_id,
+                name: spParams.ingredient_name,
+                category_name: spParams.category,
+                rating: parseFloat(spParams.inst_rating)
               };
               setDemoState(prev => ({
                 ...prev,
-                instructor: [...prev.instructor, newInst]
+                ingredient: [...prev.ingredient, newInst]
               }));
-              setSpConsole({ type: 'success', text: `Instructor '${spParams.inst_name}' inserted successfully in Demo state.` });
-              setSpResults([...demoState.instructor, newInst]);
+              setSpConsole({ type: 'success', text: `Ingredient '${spParams.ingredient_name}' inserted successfully in Demo state.` });
+              setSpResults([...demoState.ingredients, newInst]);
             }
             break;
             
           case 'UpdateRecipeCookTime':
-            if (parseInt(spParams.additional_credits) < 0) {
+            if (parseInt(spParams.additional_points) < 0) {
               setSpConsole({ type: 'error', text: 'Error: additional credits cannot be negative' });
-            } else if (!demoState.student.some(s => s.student_id === spParams.stud_id)) {
-              setSpConsole({ type: 'error', text: `Error: student ID '${spParams.stud_id}' does not exist.` });
+            } else if (!demoState.users.some(s => s.user_id === spParams.user_id)) {
+              setSpConsole({ type: 'error', text: `Error: user ID '${spParams.user_id}' does not exist.` });
             } else {
-              const updatedStudents = demoState.student.map(s => {
-                if (s.student_id === spParams.stud_id) {
-                  return { ...s, tot_cred: s.tot_cred + parseInt(spParams.additional_credits) };
+              const updatedUsers = demoState.users.map(s => {
+                if (s.user_id === spParams.user_id) {
+                  return { ...s, tot_cred: s.tot_cred + parseInt(spParams.additional_points) };
                 }
                 return s;
               });
-              setDemoState(prev => ({ ...prev, student: updatedStudents }));
-              setSpConsole({ type: 'success', text: `Demo State Updated! Added ${spParams.additional_credits} credits to Student ID ${spParams.stud_id}` });
-              setSpResults(updatedStudents);
+              setDemoState(prev => ({ ...prev, user: updatedUsers }));
+              setSpConsole({ type: 'success', text: `Demo State Updated! Added ${spParams.additional_points} credits to User ID ${spParams.user_id}` });
+              setSpResults(updatedUsers);
             }
             break;
             
           case 'RateRecipe':
             if (parseFloat(spParams.increase_amount) <= 0) {
               setSpConsole({ type: 'error', text: 'Error: Increase amount must be greater than 0.' });
-            } else if (!demoState.instructor.some(i => i.instructor_id === spParams.inst_id)) {
-              setSpConsole({ type: 'error', text: `Error: Instructor ID '${spParams.inst_id}' does not exist.` });
+            } else if (!demoState.ingredients.some(i => i.ingredient_id === spParams.ingredient_id)) {
+              setSpConsole({ type: 'error', text: `Error: Ingredient ID '${spParams.ingredient_id}' does not exist.` });
             } else {
-              const prevSal = demoState.instructor.find(i => i.instructor_id === spParams.inst_id).salary;
-              const updatedInstructors = demoState.instructor.map(i => {
-                if (i.instructor_id === spParams.inst_id) {
-                  return { ...i, salary: i.salary + parseFloat(spParams.increase_amount) };
+              const prevSal = demoState.ingredients.find(i => i.ingredient_id === spParams.ingredient_id).rating;
+              const updatedIngredients = demoState.ingredients.map(i => {
+                if (i.ingredient_id === spParams.ingredient_id) {
+                  return { ...i, rating: i.rating + parseFloat(spParams.increase_amount) };
                 }
                 return i;
               });
-              setDemoState(prev => ({ ...prev, instructor: updatedInstructors }));
+              setDemoState(prev => ({ ...prev, ingredient: updatedIngredients }));
               setSpConsole({ 
                 type: 'success', 
-                text: `Instructor salary updated successfully. Previous: ${prevSal} -> New: ${prevSal + parseFloat(spParams.increase_amount)}`
+                text: `Ingredient rating updated successfully. Previous: ${prevSal} -> New: ${prevSal + parseFloat(spParams.increase_amount)}`
               });
-              setSpResults(updatedInstructors);
+              setSpResults(updatedIngredients);
             }
             break;
             
           case 'GetUserFavorites':
-            setSpConsole({ type: 'success', text: `Demo Stored Procedure executed in ${duration}ms.\nJoins student and advisor tables.` });
-            const list = demoState.student.map(s => {
-              const adv = demoState.advisor.find(a => a.student_id === s.student_id);
-              const inst = adv ? demoState.instructor.find(i => i.instructor_id === adv.instructor_id) : null;
+            setSpConsole({ type: 'success', text: `Demo Stored Procedure executed in ${duration}ms.\nJoins user and favorite tables.` });
+            const list = demoState.users.map(s => {
+              const adv = demoState.favorite.find(a => a.user_id === s.user_id);
+              const inst = adv ? demoState.ingredients.find(i => i.ingredient_id === fav.ingredient_id) : null;
               return {
-                student_id: s.student_id,
-                student_name: s.name,
-                student_department: s.dept_name,
-                advisor_id: adv ? adv.instructor_id : null,
-                advisor_name: inst ? inst.name : 'No Advisor'
+                user_id: s.user_id,
+                user_name: s.name,
+                user_category: s.category_name,
+                favorite_id: adv ? fav.ingredient_id : null,
+                favorite_name: inst ? inst.name : 'No Favorite'
               };
             });
             setSpResults(list);
             break;
             
           case 'GetRecipeRatings':
-            setSpConsole({ type: 'success', text: `Demo Stored Procedure executed in ${duration}ms.\nCounts student enrollments per course.` });
-            const resultList = demoState.course.map(c => {
-              const count = demoState.takes.filter(t => t.course_id === c.course_id).length;
+            setSpConsole({ type: 'success', text: `Demo Stored Procedure executed in ${duration}ms.\nCounts user enrollments per recipe.` });
+            const resultList = demoState.recipes.map(c => {
+              const count = demoState.takes.filter(t => t.recipe_id === c.recipe_id).length;
               return {
-                course_id: c.course_id,
-                course_title: c.title,
-                dept_name: c.dept_name,
-                student_count: count
+                recipe_id: c.recipe_id,
+                recipe_title: c.title,
+                category_name: c.category_name,
+                user_count: count
               };
-            }).sort((a,b) => b.student_count - a.student_count);
+            }).sort((a,b) => b.user_count - a.user_count);
             setSpResults(resultList);
             break;
             
@@ -803,7 +803,7 @@ function App() {
       const currentYear = new Date().getFullYear();
       const calculatedAge = currentYear - birthYear;
       
-      const sql = `UPDATE student SET DoB = '${triggerAgeForm.dob}' WHERE student_id = '${triggerAgeForm.student_id}';\nSELECT * FROM student;`;
+      const sql = `UPDATE user SET DoB = '${triggerAgeForm.dob}' WHERE user_id = '${triggerAgeForm.user_id}';\nSELECT * FROM user;`;
       
       if (connectionMode === 'LIVE') {
         try {
@@ -814,12 +814,12 @@ function App() {
           });
           const result = await response.json();
           if (result.success) {
-            // Find updated student in returned dataset
+            // Find updated user in returned dataset
             const updatedList = result.recordsets[1] || result.data || [];
-            const stud = updatedList.find(s => s.student_id === triggerAgeForm.student_id);
+            const stud = updatedList.find(s => s.user_id === triggerAgeForm.user_id);
             setTriggerConsole({
               type: 'success',
-              text: `SUCCESS: Trigger [trg_update_age] fired AFTER UPDATE!\nAutomatically calculated and updated student's age field.\n\nCalculated Student Age: ${stud?.age || calculatedAge}\n\nT-SQL Statement:\n${sql}`
+              text: `SUCCESS: Trigger [trg_update_age] fired AFTER UPDATE!\nAutomatically calculated and updated user's age field.\n\nCalculated User Age: ${stud?.age || calculatedAge}\n\nT-SQL Statement:\n${sql}`
             });
             fetchStats();
           } else {
@@ -831,16 +831,16 @@ function App() {
       } else {
         // Demo mode local update
         setTimeout(() => {
-          const updated = demoState.student.map(s => {
-            if (s.student_id === triggerAgeForm.student_id) {
+          const updated = demoState.users.map(s => {
+            if (s.user_id === triggerAgeForm.user_id) {
               return { ...s, DoB: triggerAgeForm.dob, age: calculatedAge };
             }
             return s;
           });
-          setDemoState(prev => ({ ...prev, student: updated }));
+          setDemoState(prev => ({ ...prev, user: updated }));
           setTriggerConsole({
             type: 'success',
-            text: `SUCCESS (Demo Playground Mode):\nTrigger [trg_update_age] successfully fired!\nStudent ID ${triggerAgeForm.student_id} DOB updated to ${triggerAgeForm.dob}.\nAge calculated automatically in local state: ${calculatedAge} years old!`
+            text: `SUCCESS (Demo Playground Mode):\nTrigger [trg_update_age] successfully fired!\nUser ID ${triggerAgeForm.user_id} DOB updated to ${triggerAgeForm.dob}.\nAge calculated automatically in local state: ${calculatedAge} years old!`
           });
         }, 400);
       }
@@ -848,7 +848,7 @@ function App() {
 
     if (triggerType === 'capacity') {
       const capVal = parseInt(triggerCapForm.capacity);
-      const sql = `INSERT INTO classroom (building, room_number, capacity)\nVALUES ('${triggerCapForm.building}', '${triggerCapForm.room_number}', ${capVal});`;
+      const sql = `INSERT INTO category (type, sub_type, capacity)\nVALUES ('${triggerCapForm.type}', '${triggerCapForm.sub_type}', ${capVal});`;
       
       if (connectionMode === 'LIVE') {
         try {
@@ -861,7 +861,7 @@ function App() {
           if (result.success) {
             setTriggerConsole({
               type: 'success',
-              text: `SUCCESS: Trigger [check_classroom_capacity] passed! INSTEAD OF INSERT completed successfully.\nClassroom capacity ${capVal} <= 200 restriction satisfied.\n\nT-SQL Code Executed:\n${sql}`
+              text: `SUCCESS: Trigger [check_category_capacity] passed! INSTEAD OF INSERT completed successfully.\ncategory capacity ${capVal} <= 200 restriction satisfied.\n\nT-SQL Code Executed:\n${sql}`
             });
             fetchStats();
           } else {
@@ -879,17 +879,17 @@ function App() {
           if (capVal > 200) {
             setTriggerConsole({
               type: 'error',
-              text: `TRIGGER ROLLBACK EXCEPTION [RAISERROR Level 16]:\nclassroom capacity cannot be more than 200 (Capacity attempted: ${capVal}).\nTransaction explicitly rolled back by INSTEAD OF INSERT trigger check_classroom_capacity.`
+              text: `TRIGGER ROLLBACK EXCEPTION [RAISERROR Level 16]:\ncategory capacity cannot be more than 200 (Capacity attempted: ${capVal}).\nTransaction explicitly rolled back by INSTEAD OF INSERT trigger check_category_capacity.`
             });
           } else {
-            const newClass = { building: triggerCapForm.building, room_number: triggerCapForm.room_number, capacity: capVal };
+            const newClass = { type: triggerCapForm.type, sub_type: triggerCapForm.sub_type, capacity: capVal };
             setDemoState(prev => ({
               ...prev,
-              classroom: [...prev.classroom, newClass]
+              category: [...prev.category, newClass]
             }));
             setTriggerConsole({
               type: 'success',
-              text: `SUCCESS (Demo Playground Mode):\nTrigger [check_classroom_capacity] evaluated successfully!\nCapacity ${capVal} is within bounds (<= 200).\nClassroom inserted into local table list.`
+              text: `SUCCESS (Demo Playground Mode):\nTrigger [check_category_capacity] evaluated successfully!\nCapacity ${capVal} is within bounds (<= 200).\nCategory inserted into local table list.`
             });
           }
         }, 400);
@@ -899,9 +899,9 @@ function App() {
     if (triggerType === 'audit') {
       let sql = '';
       if (triggerDeptForm.action === 'insert') {
-        sql = `INSERT INTO department (dept_name, building, budget)\nVALUES ('${triggerDeptForm.dept_name}', '${triggerDeptForm.building}', ${triggerDeptForm.budget});\nSELECT * FROM department_log ORDER BY log_id DESC;`;
+        sql = `INSERT INTO category (category_name, type, budget)\nVALUES ('${triggerDeptForm.category_name}', '${triggerDeptForm.type}', ${triggerDeptForm.budget});\nSELECT * FROM category_log ORDER BY log_id DESC;`;
       } else {
-        sql = `DELETE FROM department WHERE dept_name = '${triggerDeptForm.dept_name}';\nSELECT * FROM department_log ORDER BY log_id DESC;`;
+        sql = `DELETE FROM category WHERE category_name = '${triggerDeptForm.category_name}';\nSELECT * FROM category_log ORDER BY log_id DESC;`;
       }
 
       if (connectionMode === 'LIVE') {
@@ -916,7 +916,7 @@ function App() {
             const logs = result.recordsets[1] || result.data || [];
             setTriggerConsole({
               type: 'success',
-              text: `SUCCESS: Trigger fired and successfully logged department activity!\nAction: '${triggerDeptForm.action.toUpperCase()}' on Department: '${triggerDeptForm.dept_name}'\n\nLatest department_log entry: ${JSON.stringify(logs[0] || {}, null, 2)}\n\nT-SQL Code:\n${sql}`
+              text: `SUCCESS: Trigger fired and successfully logged category activity!\nAction: '${triggerDeptForm.action.toUpperCase()}' on Category: '${triggerDeptForm.category_name}'\n\nLatest category_log entry: ${JSON.stringify(logs[0] || {}, null, 2)}\n\nT-SQL Code:\n${sql}`
             });
             fetchStats();
           } else {
@@ -929,41 +929,41 @@ function App() {
         // Demo mode logging simulation
         setTimeout(() => {
           const newLog = {
-            log_id: demoState.department_log.length + 1,
-            dept_name: triggerDeptForm.dept_name,
+            log_id: demoState.category_log.length + 1,
+            category_name: triggerDeptForm.category_name,
             budget: parseFloat(triggerDeptForm.budget),
             action: triggerDeptForm.action,
             log_time: new Date().toISOString().replace('T', ' ').substring(0, 19)
           };
           
-          let updatedDepts = [...demoState.department];
+          let updatedDepts = [...demoState.category];
           if (triggerDeptForm.action === 'insert') {
             updatedDepts.push({
-              dept_name: triggerDeptForm.dept_name,
-              building: triggerDeptForm.building,
+              category_name: triggerDeptForm.category_name,
+              type: triggerDeptForm.type,
               budget: parseFloat(triggerDeptForm.budget)
             });
           } else {
-            updatedDepts = updatedDepts.filter(d => d.dept_name !== triggerDeptForm.dept_name);
+            updatedDepts = updatedDepts.filter(d => d.category_name !== triggerDeptForm.category_name);
           }
 
           setDemoState(prev => ({
             ...prev,
-            department: updatedDepts,
-            department_log: [newLog, ...prev.department_log]
+            category: updatedDepts,
+            category_log: [newLog, ...prev.category_log]
           }));
 
           setTriggerConsole({
             type: 'success',
-            text: `SUCCESS (Demo Mode):\nTrigger [log_dept_${triggerDeptForm.action}] fired AFTER ${triggerDeptForm.action.toUpperCase()}!\nAudit log appended successfully.\n\nLatest department_log:\n${JSON.stringify(newLog, null, 2)}`
+            text: `SUCCESS (Demo Mode):\nTrigger [log_category_${triggerDeptForm.action}] fired AFTER ${triggerDeptForm.action.toUpperCase()}!\nAudit log appended successfully.\n\nLatest category_log:\n${JSON.stringify(newLog, null, 2)}`
           });
         }, 400);
       }
     }
 
-    if (triggerType === 'salary') {
-      const newVal = parseFloat(triggerSalForm.new_salary);
-      const sql = `UPDATE instructor SET salary = ${newVal} WHERE instructor_id = '${triggerSalForm.instructor_id}';`;
+    if (triggerType === 'rating') {
+      const newVal = parseFloat(triggerSalForm.new_rating);
+      const sql = `UPDATE ingredient SET rating = ${newVal} WHERE ingredient_id = '${triggerSalForm.ingredient_id}';`;
       
       if (connectionMode === 'LIVE') {
         try {
@@ -976,37 +976,37 @@ function App() {
           if (result.success) {
             setTriggerConsole({
               type: 'success',
-              text: `SUCCESS: Trigger [salary_nodecrease] evaluated! Salary increase to $${newVal} allowed.\n\nT-SQL Statement:\n${sql}`
+              text: `SUCCESS: Trigger [rating_nodecrease] evaluated! Rating increase to $${newVal} allowed.\n\nT-SQL Statement:\n${sql}`
             });
             fetchStats();
           } else {
             setTriggerConsole({
               type: 'error',
-              text: `TRIGGER ROLLBACK (Salary Decrease Violation Level 16):\n${result.error}\n\nT-SQL Statement Blocked:\n${sql}`
+              text: `TRIGGER ROLLBACK (Rating Decrease Violation Level 16):\n${result.error}\n\nT-SQL Statement Blocked:\n${sql}`
             });
           }
         } catch (e) {
           setTriggerConsole({ type: 'error', text: 'Live Connection request error.' });
         }
       } else {
-        // Demo mode salary rollback simulation
+        // Demo mode rating rollback simulation
         setTimeout(() => {
-          if (newVal < triggerSalForm.current_salary) {
+          if (newVal < triggerSalForm.current_rating) {
             setTriggerConsole({
               type: 'error',
-              text: `TRIGGER ROLLBACK EXCEPTION [RAISERROR Level 16]:\nSalary decrease not allowed for instructors (Instructor ID: ${triggerSalForm.instructor_id}).\nAttempted to lower salary from $${triggerSalForm.current_salary} to $${newVal}.\nTransaction explicitly rolled back by AFTER UPDATE trigger [salary_nodecrease].`
+              text: `TRIGGER ROLLBACK EXCEPTION [RAISERROR Level 16]:\nRating decrease not allowed for ingredients (Ingredient ID: ${triggerSalForm.ingredient_id}).\nAttempted to lower rating from $${triggerSalForm.current_rating} to $${newVal}.\nTransaction explicitly rolled back by AFTER UPDATE trigger [rating_nodecrease].`
             });
           } else {
-            const updated = demoState.instructor.map(i => {
-              if (i.instructor_id === triggerSalForm.instructor_id) {
-                return { ...i, salary: newVal };
+            const updated = demoState.ingredients.map(i => {
+              if (i.ingredient_id === triggerSalForm.ingredient_id) {
+                return { ...i, rating: newVal };
               }
               return i;
             });
-            setDemoState(prev => ({ ...prev, instructor: updated }));
+            setDemoState(prev => ({ ...prev, ingredient: updated }));
             setTriggerConsole({
               type: 'success',
-              text: `SUCCESS (Demo Mode):\nTrigger [salary_nodecrease] successfully evaluated!\nSalary raise from $${triggerSalForm.current_salary} to $${newVal} approved and updated in local state.`
+              text: `SUCCESS (Demo Mode):\nTrigger [rating_nodecrease] successfully evaluated!\nRating raise from $${triggerSalForm.current_rating} to $${newVal} approved and updated in local state.`
             });
           }
         }, 400);
@@ -1030,7 +1030,7 @@ function App() {
         SET @EndTime = GETDATE();
         SET @t1 = DATEDIFF(millisecond, @StartTime, @EndTime);
         
-        -- Run again, T-SQL will hit the index idx_student_dept_name
+        -- Run again, T-SQL will hit the index idx_user_category_name
         SET @StartTime = GETDATE();
         SELECT * FROM Recipes_Large WHERE difficulty = 'Hard';
         SET @EndTime = GETDATE();
@@ -1415,7 +1415,7 @@ function App() {
                 </div>
                 <div className="card-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   <p className="text-secondary">
-                    Your <code>query_2nd.sql</code> schema represents a classic recipe catalog database containing student enrollments, faculty profiles, advisor mappings, classroom logistics, and grading frameworks.
+                    Your <code>query_2nd.sql</code> schema represents a classic recipe catalog database containing user enrollments, faculty profiles, favorite mappings, category logistics, and grading frameworks.
                   </p>
 
                   <div style={{ border: '1px solid var(--panel-border)', borderRadius: '10px', padding: '16px', background: 'rgba(255, 255, 255, 0.01)' }}>
@@ -1424,7 +1424,7 @@ function App() {
                       <li><strong>80+ structured queries</strong> (Joins, CTEs, Window functions)</li>
                       <li><strong>10 stored procedures</strong> with input & output parameters</li>
                       <li><strong>4 active database triggers</strong> enforcing constraints & logs</li>
-                      <li><strong>Indexed performance tests</strong> comparison (50,000 students)</li>
+                      <li><strong>Indexed performance tests</strong> comparison (50,000 users)</li>
                     </ul>
                   </div>
 
@@ -1744,16 +1744,16 @@ function App() {
               </div>
               <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {[
-                  { name: 'GetRecipeDetails', desc: 'Lists building, room, & capacity' },
-                  { name: 'CountRecipesCategory', desc: 'Counts courses in each major' },
-                  { name: 'GetRecipesByCategory', desc: 'Fetch course by department param' },
-                  { name: 'GetIngredientCountRecipe', desc: 'Count instructors (Output Param)' },
-                  { name: 'AddNewRecipe', desc: 'Inserts new department securely' },
-                  { name: 'AddIngredient', desc: 'Inserts instructor with exception catch' },
-                  { name: 'UpdateRecipeCookTime', desc: 'Updates student credit records' },
-                  { name: 'RateRecipe', desc: 'Updates salary with constraints check' },
-                  { name: 'GetUserFavorites', desc: 'Lists students and advisor name' },
-                  { name: 'GetRecipeRatings', desc: 'Aggregates student count for courses' }
+                  { name: 'GetRecipeDetails', desc: 'Lists type, room, & capacity' },
+                  { name: 'CountRecipesCategory', desc: 'Counts recipes in each major' },
+                  { name: 'GetRecipesByCategory', desc: 'Fetch recipe by category param' },
+                  { name: 'GetIngredientCountCategory', desc: 'Count ingredients in category (Output Param)' },
+                  { name: 'AddNewRecipe', desc: 'Inserts new category securely' },
+                  { name: 'AddIngredient', desc: 'Inserts ingredient with exception catch' },
+                  { name: 'UpdateRecipeCookTime', desc: 'Updates user credit records' },
+                  { name: 'RateRecipe', desc: 'Updates rating with constraints check' },
+                  { name: 'GetUserFavorites', desc: 'Lists users and favorite name' },
+                  { name: 'GetRecipeRatings', desc: 'Aggregates user count for recipes' }
                 ].map(proc => (
                   <button 
                     key={proc.name}
@@ -1788,13 +1788,13 @@ function App() {
                     <div className="param-title">Input Parameters:</div>
                     
                     {/* Render input params conditionally depending on selected SP */}
-                    {['GetRecipesByCategory', 'GetIngredientCountRecipe', 'AddIngredient'].includes(selectedProcedure) && (
+                    {['GetRecipesByCategory', 'GetIngredientCountCategory', 'AddIngredient'].includes(selectedProcedure) && (
                       <div className="form-group">
-                        <label>@dept (Department Major)</label>
+                        <label>@category (Category Major)</label>
                         <select 
                           className="form-select" 
-                          value={spParams.dept} 
-                          onChange={e => setSpParams({ ...spParams, dept: e.target.value })}
+                          value={spParams.category} 
+                          onChange={e => setSpParams({ ...spParams, category: e.target.value })}
                         >
                           <option value="Comp. Sci.">Comp. Sci.</option>
                           <option value="Biology">Biology</option>
@@ -1810,22 +1810,22 @@ function App() {
                     {selectedProcedure === 'AddNewRecipe' && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label>@dept_name (Department Name)</label>
+                          <label>@category_name (Category Name)</label>
                           <input 
                             type="text" 
                             className="form-input" 
-                            value={spParams.new_dept_name} 
-                            onChange={e => setSpParams({ ...spParams, new_dept_name: e.target.value })}
+                            value={spParams.new_category_name} 
+                            onChange={e => setSpParams({ ...spParams, new_category_name: e.target.value })}
                           />
                         </div>
                         <div className="form-row-2">
                           <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label>@building</label>
+                            <label>@type</label>
                             <input 
                               type="text" 
                               className="form-input" 
-                              value={spParams.new_dept_building} 
-                              onChange={e => setSpParams({ ...spParams, new_dept_building: e.target.value })}
+                              value={spParams.new_category_type} 
+                              onChange={e => setSpParams({ ...spParams, new_category_type: e.target.value })}
                             />
                           </div>
                           <div className="form-group" style={{ marginBottom: 0 }}>
@@ -1833,8 +1833,8 @@ function App() {
                             <input 
                               type="number" 
                               className="form-input" 
-                              value={spParams.new_dept_budget} 
-                              onChange={e => setSpParams({ ...spParams, new_dept_budget: e.target.value })}
+                              value={spParams.new_category_budget} 
+                              onChange={e => setSpParams({ ...spParams, new_category_budget: e.target.value })}
                             />
                           </div>
                         </div>
@@ -1845,32 +1845,32 @@ function App() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '12px' }}>
                         <div className="form-row-2">
                           <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label>@inst_id (Instructor ID)</label>
+                            <label>@ingredient_id (Ingredient ID)</label>
                             <input 
                               type="text" 
                               className="form-input" 
-                              value={spParams.inst_id} 
-                              onChange={e => setSpParams({ ...spParams, inst_id: e.target.value })}
+                              value={spParams.ingredient_id} 
+                              onChange={e => setSpParams({ ...spParams, ingredient_id: e.target.value })}
                               placeholder="e.g. 88888"
                             />
                           </div>
                           <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label>@inst_name (Name)</label>
+                            <label>@ingredient_name (Name)</label>
                             <input 
                               type="text" 
                               className="form-input" 
-                              value={spParams.inst_name} 
-                              onChange={e => setSpParams({ ...spParams, inst_name: e.target.value })}
+                              value={spParams.ingredient_name} 
+                              onChange={e => setSpParams({ ...spParams, ingredient_name: e.target.value })}
                             />
                           </div>
                         </div>
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label>@inst_salary (Salary)</label>
+                          <label>@inst_rating (Rating)</label>
                           <input 
                             type="number" 
                             className="form-input" 
-                            value={spParams.inst_salary} 
-                            onChange={e => setSpParams({ ...spParams, inst_salary: e.target.value })}
+                            value={spParams.inst_rating} 
+                            onChange={e => setSpParams({ ...spParams, inst_rating: e.target.value })}
                           />
                         </div>
                       </div>
@@ -1879,14 +1879,14 @@ function App() {
                     {selectedProcedure === 'UpdateRecipeCookTime' && (
                       <div className="form-row-2">
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label>@stud_id (Student ID)</label>
+                          <label>@user_id (User ID)</label>
                           <select 
                             className="form-select" 
-                            value={spParams.stud_id} 
-                            onChange={e => setSpParams({ ...spParams, stud_id: e.target.value })}
+                            value={spParams.user_id} 
+                            onChange={e => setSpParams({ ...spParams, user_id: e.target.value })}
                           >
-                            {(connectionMode === 'LIVE' ? [] : demoState.student).map(s => (
-                              <option key={s.student_id} value={s.student_id}>{s.student_id} - {s.name}</option>
+                            {(connectionMode === 'LIVE' ? [] : demoState.users).map(s => (
+                              <option key={s.user_id} value={s.user_id}>{s.user_id} - {s.name}</option>
                             ))}
                             {connectionMode === 'LIVE' && (
                               <option value="00128">00128 - Zhang</option>
@@ -1894,12 +1894,12 @@ function App() {
                           </select>
                         </div>
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label>@additional_credits</label>
+                          <label>@additional_points</label>
                           <input 
                             type="number" 
                             className="form-input" 
-                            value={spParams.additional_credits} 
-                            onChange={e => setSpParams({ ...spParams, additional_credits: e.target.value })}
+                            value={spParams.additional_points} 
+                            onChange={e => setSpParams({ ...spParams, additional_points: e.target.value })}
                           />
                         </div>
                       </div>
@@ -1908,14 +1908,14 @@ function App() {
                     {selectedProcedure === 'RateRecipe' && (
                       <div className="form-row-2">
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label>@inst_id (Instructor ID)</label>
+                          <label>@ingredient_id (Ingredient ID)</label>
                           <select 
                             className="form-select" 
-                            value={spParams.inst_id} 
-                            onChange={e => setSpParams({ ...spParams, inst_id: e.target.value })}
+                            value={spParams.ingredient_id} 
+                            onChange={e => setSpParams({ ...spParams, ingredient_id: e.target.value })}
                           >
-                            {(connectionMode === 'LIVE' ? [] : demoState.instructor).map(i => (
-                              <option key={i.instructor_id} value={i.instructor_id}>{i.instructor_id} - {i.name}</option>
+                            {(connectionMode === 'LIVE' ? [] : demoState.ingredients).map(i => (
+                              <option key={i.ingredient_id} value={i.ingredient_id}>{i.ingredient_id} - {i.name}</option>
                             ))}
                             {connectionMode === 'LIVE' && (
                               <option value="10101">10101 - Srinivasan</option>
@@ -1934,7 +1934,7 @@ function App() {
                       </div>
                     )}
 
-                    {!['GetRecipesByCategory', 'GetIngredientCountRecipe', 'AddNewRecipe', 'AddIngredient', 'UpdateRecipeCookTime', 'RateRecipe'].includes(selectedProcedure) && (
+                    {!['GetRecipesByCategory', 'GetIngredientCountCategory', 'AddNewRecipe', 'AddIngredient', 'UpdateRecipeCookTime', 'RateRecipe'].includes(selectedProcedure) && (
                       <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                         This Stored Procedure takes <strong>0 arguments</strong>.
                       </div>
@@ -1951,12 +1951,12 @@ function App() {
                           switch (selectedProcedure) {
                             case 'GetRecipeDetails': queryStr = 'EXEC GetRecipeDetails;'; break;
                             case 'CountRecipesCategory': queryStr = 'EXEC CountRecipesCategory;'; break;
-                            case 'GetRecipesByCategory': queryStr = `EXEC GetRecipesByCategory @dept = '${spParams.dept}';`; break;
-                            case 'GetIngredientCountRecipe': queryStr = `DECLARE @count INT;\nEXEC GetIngredientCountRecipe @dept = '${spParams.dept}', @inst_count = @count OUTPUT;\nSELECT @count AS instructor_count;`; break;
-                            case 'AddNewRecipe': queryStr = `DECLARE @error_msg NVARCHAR(100);\nEXEC AddNewRecipe @dept_name = '${spParams.new_dept_name}', @building = '${spParams.new_dept_building}', @budget = ${spParams.new_dept_budget}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM department;`; break;
-                            case 'AddIngredient': queryStr = `DECLARE @error_msg NVARCHAR(100);\nEXEC AddIngredient @inst_id = '${spParams.inst_id}', @inst_name = '${spParams.inst_name}', @dept = '${spParams.dept}', @inst_salary = ${spParams.inst_salary}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM instructor;`; break;
-                            case 'UpdateRecipeCookTime': queryStr = `DECLARE @error_msg NVARCHAR(100);\nEXEC UpdateRecipeCookTime @stud_id = '${spParams.stud_id}', @additional_credits = ${spParams.additional_credits}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM student;`; break;
-                            case 'RateRecipe': queryStr = `DECLARE @error_msg NVARCHAR(100);\nEXEC RateRecipe @inst_id = '${spParams.inst_id}', @increase_amount = ${spParams.increase_amount}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM instructor;`; break;
+                            case 'GetRecipesByCategory': queryStr = `EXEC GetRecipesByCategory @category = '${spParams.category}';`; break;
+                            case 'GetIngredientCountCategory': queryStr = `DECLARE @count INT;\nEXEC GetIngredientCountCategory @category = '${spParams.category}', @inst_count = @count OUTPUT;\nSELECT @count AS ingredient_count;`; break;
+                            case 'AddNewRecipe': queryStr = `DECLARE @error_msg NVARCHAR(100);\nEXEC AddNewRecipe @category_name = '${spParams.new_category_name}', @type = '${spParams.new_category_type}', @budget = ${spParams.new_category_budget}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM category;`; break;
+                            case 'AddIngredient': queryStr = `DECLARE @error_msg NVARCHAR(100);\nEXEC AddIngredient @ingredient_id = '${spParams.ingredient_id}', @ingredient_name = '${spParams.ingredient_name}', @category = '${spParams.category}', @inst_rating = ${spParams.inst_rating}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM ingredient;`; break;
+                            case 'UpdateRecipeCookTime': queryStr = `DECLARE @error_msg NVARCHAR(100);\nEXEC UpdateRecipeCookTime @user_id = '${spParams.user_id}', @additional_points = ${spParams.additional_points}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM user;`; break;
+                            case 'RateRecipe': queryStr = `DECLARE @error_msg NVARCHAR(100);\nEXEC RateRecipe @ingredient_id = '${spParams.ingredient_id}', @increase_amount = ${spParams.increase_amount}, @error_message = @error_msg OUTPUT;\nSELECT @error_msg AS result;\nSELECT * FROM ingredient;`; break;
                             case 'GetUserFavorites': queryStr = 'EXEC GetUserFavorites;'; break;
                             case 'GetRecipeRatings': queryStr = 'EXEC GetRecipeRatings;'; break;
                           }
@@ -2064,7 +2064,7 @@ function App() {
                       </div>
                       <div>
                         <div className="trigger-title">trg_update_age</div>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Calculates student age</div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Calculates user age</div>
                       </div>
                     </div>
 
@@ -2089,7 +2089,7 @@ function App() {
                         <GitCommit size={16} />
                       </div>
                       <div>
-                        <div className="trigger-title">log_dept_audit</div>
+                        <div className="trigger-title">log_category_audit</div>
                         <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Logs inserts & deletes</div>
                       </div>
                     </div>
@@ -2102,8 +2102,8 @@ function App() {
                         <TrendingUp size={16} />
                       </div>
                       <div>
-                        <div className="trigger-title">salary_nodecrease</div>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Rollback salary drops</div>
+                        <div className="trigger-title">rating_nodecrease</div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>Rollback rating drops</div>
                       </div>
                     </div>
                   </div>
@@ -2113,19 +2113,19 @@ function App() {
                     <div className="animate-fadeIn">
                       <div className="alert alert-info">
                         <Info size={16} />
-                        <span><strong>Trigger Logic:</strong> Fires AFTER INSERT/UPDATE on student. If Date of Birth (DoB) is modified, SQL Server calculates the years difference relative to GETDATE() and updates the <code>age</code> column automatically!</span>
+                        <span><strong>Trigger Logic:</strong> Fires AFTER INSERT/UPDATE on user. If Date of Birth (DoB) is modified, SQL Server calculates the years difference relative to GETDATE() and updates the <code>age</code> column automatically!</span>
                       </div>
                       
                       <div className="form-row-2">
                         <div className="form-group">
-                          <label>Target Student</label>
+                          <label>Target User</label>
                           <select 
                             className="form-select"
-                            value={triggerAgeForm.student_id}
-                            onChange={e => setTriggerAgeForm({ ...triggerAgeForm, student_id: e.target.value })}
+                            value={triggerAgeForm.user_id}
+                            onChange={e => setTriggerAgeForm({ ...triggerAgeForm, user_id: e.target.value })}
                           >
-                            {(connectionMode === 'LIVE' ? [] : demoState.student).map(s => (
-                              <option key={s.student_id} value={s.student_id}>{s.student_id} - {s.name} (Age: {s.age || 'N/A'})</option>
+                            {(connectionMode === 'LIVE' ? [] : demoState.users).map(s => (
+                              <option key={s.user_id} value={s.user_id}>{s.user_id} - {s.name} (Age: {s.age || 'N/A'})</option>
                             ))}
                             {connectionMode === 'LIVE' && (
                               <option value="00128">00128 - Zhang</option>
@@ -2148,12 +2148,12 @@ function App() {
                           className="btn btn-secondary" 
                           style={{ flex: 1 }}
                           onClick={() => {
-                            const queryStr = `UPDATE student SET DoB = '${triggerAgeForm.dob}' WHERE student_id = '${triggerAgeForm.student_id}';\nSELECT * FROM student;`;
+                            const queryStr = `UPDATE user SET DoB = '${triggerAgeForm.dob}' WHERE user_id = '${triggerAgeForm.user_id}';\nSELECT * FROM user;`;
                             setEditorSql(queryStr);
                             setSelectedQuery({
                               id: 'trigger-age',
                               title: 'Trigger Action: trg_update_age',
-                              explanation: 'Update DOB on student table to trigger age auto-calculation.',
+                              explanation: 'Update DOB on user table to trigger age auto-calculation.',
                               sql: queryStr
                             });
                             setActiveTab('query');
@@ -2176,7 +2176,7 @@ function App() {
                     <div className="animate-fadeIn">
                       <div className="alert alert-warning">
                         <AlertTriangle size={16} style={{ flexShrink: 0 }} />
-                        <span><strong>Trigger Logic:</strong> INSTEAD OF INSERT trigger on classrooms. If the capacity is higher than 200, SQL Server blocks the transaction, triggers RAISERROR, and executes an explicit ROLLBACK!</span>
+                        <span><strong>Trigger Logic:</strong> INSTEAD OF INSERT trigger on categorys. If the capacity is higher than 200, SQL Server blocks the transaction, triggers RAISERROR, and executes an explicit ROLLBACK!</span>
                       </div>
 
                       <div className="form-row-2">
@@ -2185,8 +2185,8 @@ function App() {
                           <input 
                             type="text" 
                             className="form-input" 
-                            value={triggerCapForm.building} 
-                            onChange={e => setTriggerCapForm({ ...triggerCapForm, building: e.target.value })}
+                            value={triggerCapForm.type} 
+                            onChange={e => setTriggerCapForm({ ...triggerCapForm, type: e.target.value })}
                           />
                         </div>
                         <div className="form-group">
@@ -2194,8 +2194,8 @@ function App() {
                           <input 
                             type="text" 
                             className="form-input" 
-                            value={triggerCapForm.room_number} 
-                            onChange={e => setTriggerCapForm({ ...triggerCapForm, room_number: e.target.value })}
+                            value={triggerCapForm.sub_type} 
+                            onChange={e => setTriggerCapForm({ ...triggerCapForm, sub_type: e.target.value })}
                           />
                         </div>
                       </div>
@@ -2216,12 +2216,12 @@ function App() {
                           className="btn btn-secondary" 
                           style={{ flex: 1 }}
                           onClick={() => {
-                            const queryStr = `INSERT INTO classroom (building, room_number, capacity)\nVALUES ('${triggerCapForm.building}', '${triggerCapForm.room_number}', ${triggerCapForm.capacity});`;
+                            const queryStr = `INSERT INTO category (type, sub_type, capacity)\nVALUES ('${triggerCapForm.type}', '${triggerCapForm.sub_type}', ${triggerCapForm.capacity});`;
                             setEditorSql(queryStr);
                             setSelectedQuery({
                               id: 'trigger-capacity',
                               title: 'Trigger Action: check_capacity',
-                              explanation: 'Insert into classroom table to trigger INSTEAD OF check capacity <= 200 restriction.',
+                              explanation: 'Insert into category table to trigger INSTEAD OF check capacity <= 200 restriction.',
                               sql: queryStr
                             });
                             setActiveTab('query');
@@ -2233,7 +2233,7 @@ function App() {
                           Open in Console
                         </button>
                         <button className="btn btn-primary" onClick={() => handleTriggerAction('capacity')} style={{ flex: 2 }}>
-                          Attempt Classroom Insertion
+                          Attempt Category Insertion
                         </button>
                       </div>
                     </div>
@@ -2244,7 +2244,7 @@ function App() {
                     <div className="animate-fadeIn">
                       <div className="alert alert-info">
                         <Info size={16} />
-                        <span><strong>Trigger Logic:</strong> Fires AFTER INSERT & AFTER DELETE on department. It automatically grabs values from the T-SQL <code>inserted</code> or <code>deleted</code> tables and populates a <code>department_log</code> audit table with dates & actions!</span>
+                        <span><strong>Trigger Logic:</strong> Fires AFTER INSERT & AFTER DELETE on category. It automatically grabs values from the T-SQL <code>inserted</code> or <code>deleted</code> tables and populates a <code>category_log</code> audit table with dates & actions!</span>
                       </div>
 
                       <div className="form-row-2">
@@ -2255,17 +2255,17 @@ function App() {
                             value={triggerDeptForm.action}
                             onChange={e => setTriggerDeptForm({ ...triggerDeptForm, action: e.target.value })}
                           >
-                            <option value="insert">INSERT Department (Fires Insert Trigger)</option>
-                            <option value="delete">DELETE Department (Fires Delete Trigger)</option>
+                            <option value="insert">INSERT Category (Fires Insert Trigger)</option>
+                            <option value="delete">DELETE Category (Fires Delete Trigger)</option>
                           </select>
                         </div>
                         <div className="form-group">
-                          <label>Department Name</label>
+                          <label>Category Name</label>
                           <input 
                             type="text" 
                             className="form-input" 
-                            value={triggerDeptForm.dept_name} 
-                            onChange={e => setTriggerDeptForm({ ...triggerDeptForm, dept_name: e.target.value })}
+                            value={triggerDeptForm.category_name} 
+                            onChange={e => setTriggerDeptForm({ ...triggerDeptForm, category_name: e.target.value })}
                           />
                         </div>
                       </div>
@@ -2277,8 +2277,8 @@ function App() {
                             <input 
                               type="text" 
                               className="form-input" 
-                              value={triggerDeptForm.building} 
-                              onChange={e => setTriggerDeptForm({ ...triggerDeptForm, building: e.target.value })}
+                              value={triggerDeptForm.type} 
+                              onChange={e => setTriggerDeptForm({ ...triggerDeptForm, type: e.target.value })}
                             />
                           </div>
                           <div className="form-group">
@@ -2300,15 +2300,15 @@ function App() {
                           onClick={() => {
                             let queryStr = '';
                             if (triggerDeptForm.action === 'insert') {
-                              queryStr = `INSERT INTO department (dept_name, building, budget)\nVALUES ('${triggerDeptForm.dept_name}', '${triggerDeptForm.building}', ${triggerDeptForm.budget});\nSELECT * FROM department_log ORDER BY log_id DESC;`;
+                              queryStr = `INSERT INTO category (category_name, type, budget)\nVALUES ('${triggerDeptForm.category_name}', '${triggerDeptForm.type}', ${triggerDeptForm.budget});\nSELECT * FROM category_log ORDER BY log_id DESC;`;
                             } else {
-                              queryStr = `DELETE FROM department WHERE dept_name = '${triggerDeptForm.dept_name}';\nSELECT * FROM department_log ORDER BY log_id DESC;`;
+                              queryStr = `DELETE FROM category WHERE category_name = '${triggerDeptForm.category_name}';\nSELECT * FROM category_log ORDER BY log_id DESC;`;
                             }
                             setEditorSql(queryStr);
                             setSelectedQuery({
                               id: 'trigger-audit',
-                              title: `Trigger Action: log_dept_${triggerDeptForm.action}`,
-                              explanation: 'DML on department to trigger department audit logging.',
+                              title: `Trigger Action: log_category_${triggerDeptForm.action}`,
+                              explanation: 'DML on category to trigger category audit logging.',
                               sql: queryStr
                             });
                             setActiveTab('query');
@@ -2320,18 +2320,18 @@ function App() {
                           Open in Console
                         </button>
                         <button className="btn btn-primary" onClick={() => handleTriggerAction('audit')} style={{ flex: 2 }}>
-                          Trigger Department Audit Action
+                          Trigger Category Audit Action
                         </button>
                       </div>
                     </div>
                   )}
 
-                  {/* Scenario 4: Salary Rollbacks */}
+                  {/* Scenario 4: Rating Rollbacks */}
                   {activeTriggerTab === 'prevent_negative' && (
                     <div className="animate-fadeIn">
                       <div className="alert alert-warning">
                         <AlertTriangle size={16} style={{ flexShrink: 0 }} />
-                        <span><strong>Trigger Logic:</strong> AFTER UPDATE trigger [salary_nodecrease] on instructors. Compares the T-SQL <code>inserted.salary</code> with the previous <code>deleted.salary</code>. If the new salary is lower, it triggers a raiserror rollback block!</span>
+                        <span><strong>Trigger Logic:</strong> AFTER UPDATE trigger [rating_nodecrease] on ingredients. Compares the T-SQL <code>inserted.rating</code> with the previous <code>deleted.rating</code>. If the new rating is lower, it triggers a raiserror rollback block!</span>
                       </div>
 
                       <div className="form-row-2">
@@ -2339,31 +2339,31 @@ function App() {
                           <label>Faculty Member</label>
                           <select 
                             className="form-select"
-                            value={triggerSalForm.instructor_id}
+                            value={triggerSalForm.ingredient_id}
                             onChange={e => {
-                              const inst = demoState.instructor.find(i => i.instructor_id === e.target.value);
+                              const inst = demoState.ingredients.find(i => i.ingredient_id === e.target.value);
                               setTriggerSalForm({
                                 ...triggerSalForm,
-                                instructor_id: e.target.value,
-                                current_salary: inst ? inst.salary : 90000
+                                ingredient_id: e.target.value,
+                                current_rating: inst ? inst.rating : 90000
                               });
                             }}
                           >
-                            {(connectionMode === 'LIVE' ? [] : demoState.instructor).map(i => (
-                              <option key={i.instructor_id} value={i.instructor_id}>{i.instructor_id} - {i.name} (Salary: ${i.salary})</option>
+                            {(connectionMode === 'LIVE' ? [] : demoState.ingredients).map(i => (
+                              <option key={i.ingredient_id} value={i.ingredient_id}>{i.ingredient_id} - {i.name} (Rating: ${i.rating})</option>
                             ))}
                             {connectionMode === 'LIVE' && (
-                              <option value="12121">12121 - Wu (Salary: $90000)</option>
+                              <option value="12121">12121 - Wu (Rating: $90000)</option>
                             )}
                           </select>
                         </div>
                         <div className="form-group">
-                          <label>New Salary Amount</label>
+                          <label>New Rating Amount</label>
                           <input 
                             type="number" 
                             className="form-input" 
-                            value={triggerSalForm.new_salary} 
-                            onChange={e => setTriggerSalForm({ ...triggerSalForm, new_salary: e.target.value })}
+                            value={triggerSalForm.new_rating} 
+                            onChange={e => setTriggerSalForm({ ...triggerSalForm, new_rating: e.target.value })}
                             placeholder="Lower than current to block, higher to pass"
                           />
                         </div>
@@ -2374,12 +2374,12 @@ function App() {
                           className="btn btn-secondary" 
                           style={{ flex: 1 }}
                           onClick={() => {
-                            const queryStr = `UPDATE instructor SET salary = ${triggerSalForm.new_salary} WHERE instructor_id = '${triggerSalForm.instructor_id}';`;
+                            const queryStr = `UPDATE ingredient SET rating = ${triggerSalForm.new_rating} WHERE ingredient_id = '${triggerSalForm.ingredient_id}';`;
                             setEditorSql(queryStr);
                             setSelectedQuery({
-                              id: 'trigger-salary',
-                              title: 'Trigger Action: salary_nodecrease',
-                              explanation: 'Update salary on instructor table to trigger salary nodecrease checks.',
+                              id: 'trigger-rating',
+                              title: 'Trigger Action: rating_nodecrease',
+                              explanation: 'Update rating on ingredient table to trigger rating nodecrease checks.',
                               sql: queryStr
                             });
                             setActiveTab('query');
@@ -2390,8 +2390,8 @@ function App() {
                         >
                           Open in Console
                         </button>
-                        <button className="btn btn-primary" onClick={() => handleTriggerAction('salary')} style={{ flex: 2 }}>
-                          Update Instructor Salary
+                        <button className="btn btn-primary" onClick={() => handleTriggerAction('rating')} style={{ flex: 2 }}>
+                          Update Ingredient Rating
                         </button>
                       </div>
                     </div>
@@ -2420,13 +2420,13 @@ function App() {
                 </div>
               </div>
 
-              {/* Department Audit Log Viewer */}
+              {/* Category Audit Log Viewer */}
               {activeTriggerTab === 'recipe_audit' && (
                 <div className="glass-panel animate-fadeIn">
                   <div className="card-header">
                     <div className="card-title">
                       <GitCommit size={16} />
-                      Log Table: department_log (Audited Records)
+                      Log Table: category_log (Audited Records)
                     </div>
                   </div>
                   <div className="card-body" style={{ maxHeight: '280px', overflowY: 'auto' }}>
@@ -2435,17 +2435,17 @@ function App() {
                         <thead>
                           <tr>
                             <th>log_id</th>
-                            <th>dept_name</th>
+                            <th>category_name</th>
                             <th>budget</th>
                             <th>action</th>
                             <th>log_time</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {(connectionMode === 'LIVE' ? [] : demoState.department_log).map(log => (
+                          {(connectionMode === 'LIVE' ? [] : demoState.category_log).map(log => (
                             <tr key={log.log_id}>
                               <td style={{ fontFamily: 'var(--font-mono)' }}>{log.log_id}</td>
-                              <td style={{ fontWeight: 600 }}>{log.dept_name}</td>
+                              <td style={{ fontWeight: 600 }}>{log.category_name}</td>
                               <td>${log.budget}</td>
                               <td>
                                 <span style={{ 
@@ -2495,7 +2495,7 @@ function App() {
               </div>
               <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 <p className="text-secondary">
-                  To showcase database indexing performance, your <code>Recipes_Large</code> script creates a table containing <strong>50,000 students</strong> with random departments, then executes benchmark queries with and without a T-SQL clustered/non-clustered index on the <code>dept_name</code> column.
+                  To showcase database indexing performance, your <code>Recipes_Large</code> script creates a table containing <strong>50,000 users</strong> with random categorys, then executes benchmark queries with and without a T-SQL clustered/non-clustered index on the <code>category_name</code> column.
                 </p>
 
                 <div style={{ padding: '16px', borderRadius: '10px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--panel-border)' }}>
@@ -2517,7 +2517,7 @@ function App() {
                        setSelectedQuery({
                          id: 'benchmark-physics',
                          title: 'Benchmark Target Query',
-                         explanation: 'The query used for side-by-side performance evaluation on the 50,000 students table.',
+                         explanation: 'The query used for side-by-side performance evaluation on the 50,000 users table.',
                          sql: queryStr
                        });
                        setActiveTab('query');
@@ -2604,7 +2604,7 @@ function App() {
                     <div className="glass-panel benchmark-card" style={{ padding: '16px', borderColor: 'var(--secondary)' }}>
                       <div className="benchmark-title" style={{ color: 'var(--secondary)' }}>Index Seek Speed</div>
                       <div className="benchmark-time highlight">{benchmarkTimes.withIndex}ms</div>
-                      <div className="benchmark-label">Instant indexed seek (idx_student_dept_name)</div>
+                      <div className="benchmark-label">Instant indexed seek (idx_user_category_name)</div>
                     </div>
                   </div>
                 )}
